@@ -114,8 +114,14 @@ jobs:
           echo "install verified"
 
       - name: Install is idempotent
-        run: ./install.sh --agent claude | grep -q "skipped" \
-          || { echo "re-run should skip existing skills"; exit 1; }
+        run: |
+          # Re-running must skip what is already there rather than clobber it.
+          # Capture first: piping install.sh straight into grep -q closes the
+          # pipe early and the script dies on SIGPIPE before it reports.
+          output="$(./install.sh --agent claude)"
+          printf '%s\n' "$output"
+          printf '%s\n' "$output" | grep -q "skipped" \
+            || { echo "re-run should have skipped existing skills"; exit 1; }
 
       - name: Uninstall and verify
         run: |
