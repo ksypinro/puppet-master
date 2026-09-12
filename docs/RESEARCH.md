@@ -2,7 +2,7 @@
 
 Each skill in this repository is the distillation of a deep-research pass over the actual tooling: what the Apple toolchain exposes from the command line, what the open-source ecosystem has already solved, and — most usefully — where the published claims do not survive contact with a real device.
 
-**The reports are attached to the [v1.0.0 release](https://github.com/ksypinro/puppet-master/releases/tag/v1.0.0)**, not committed to the repository. They are ~90 MB of `.docx` and would otherwise dominate the clone size of a repository whose product is under a megabyte of Markdown and Python — so they are downloadable without being in everyone's `git clone`.
+**The reports are attached to the [v1.0.0 release](https://github.com/ksypinro/puppet-master/releases/tag/v1.0.0)**, not committed to the repository. They are binary documents that would be re-uploaded whole on every revision, and they are background rather than something you need in a checkout — so they live as release assets, where they can be downloaded and versioned without weighing on `git clone`.
 
 The findings that matter are already in the skills: every `references/` file is the operational residue of one of these passes, and `ios-view-hierarchy-debugger/references/research-and-limits.md` states its capability limits directly. Read the reports when you want the reasoning behind a limit, not the limit itself.
 
