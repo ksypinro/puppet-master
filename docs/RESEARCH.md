@@ -2,7 +2,9 @@
 
 Each skill in this repository is the distillation of a deep-research pass over the actual tooling: what the Apple toolchain exposes from the command line, what the open-source ecosystem has already solved, and — most usefully — where the published claims do not survive contact with a real device.
 
-The reports are not published in this repository. They are large binary documents (~90 MB of `.docx`) and would dominate the clone size of a repository whose product is a few hundred kilobytes of Markdown and Python. The findings that matter are already in the skills: every `references/` file is the operational residue of one of these passes, and `ios-view-hierarchy-debugger/references/research-and-limits.md` states its capability limits directly.
+**The reports are attached to the [v1.0.0 release](https://github.com/ksypinro/puppet-master/releases/tag/v1.0.0)**, not committed to the repository. They are ~90 MB of `.docx` and would otherwise dominate the clone size of a repository whose product is under a megabyte of Markdown and Python — so they are downloadable without being in everyone's `git clone`.
+
+The findings that matter are already in the skills: every `references/` file is the operational residue of one of these passes, and `ios-view-hierarchy-debugger/references/research-and-limits.md` states its capability limits directly. Read the reports when you want the reasoning behind a limit, not the limit itself.
 
 ## What was researched
 
@@ -28,6 +30,6 @@ The consistent finding across every pass was that the gap between *documented* a
 
 Each of those is now a documented limit in the relevant skill rather than a surprise at run time. That is the main thing the research bought.
 
-## Accessing the reports
+## Downloading the reports
 
-The reports live in the author's local research workspace alongside the raw evidence, fixtures, and trace artifacts that produced them. If a specific finding would be useful — particularly a negative result, which is the most expensive kind to rediscover — open an issue and ask.
+All fifteen documents are attached to the [v1.0.0 release](https://github.com/ksypinro/puppet-master/releases/tag/v1.0.0). The raw evidence, fixtures, and trace artifacts behind them stay in the author's local workspace — if a specific negative result would save you a rediscovery, open an issue and ask.
