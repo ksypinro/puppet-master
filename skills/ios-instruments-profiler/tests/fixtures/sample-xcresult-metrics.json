@@ -1,0 +1,25 @@
+{
+  "testIdentifier": "ExampleUITests/AppLaunchPerformanceTests/testWarmLaunchUntilResponsive",
+  "testIdentifierURL": "test://com.example/ExampleUITests/AppLaunchPerformanceTests/testWarmLaunchUntilResponsive",
+  "testRuns": [
+    {
+      "testPlanConfiguration": {
+        "configurationId": "default",
+        "configurationName": "Default"
+      },
+      "device": {
+        "deviceId": "EXAMPLE-DEVICE",
+        "deviceName": "Example iPhone"
+      },
+      "metrics": [
+        {
+          "displayName": "Application Launch",
+          "identifier": "com.apple.XCTPerformanceMetric_ApplicationLaunch",
+          "unitOfMeasurement": "s",
+          "measurements": [0.82, 0.79, 0.85, 0.81, 0.8, 0.84, 0.78, 0.83, 0.8, 0.86],
+          "polarity": "prefers-smaller"
+        }
+      ]
+    }
+  ]
+}

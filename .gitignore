@@ -1,0 +1,36 @@
+# ---- Local research lab (kept on disk, not published) ----
+# This repository doubles as the research workspace that produced the skills.
+# Only the publishable product is tracked; raw evidence and build intermediates
+# are excluded. See docs/RESEARCH.md for what lives here and why.
+/artifacts/
+/.research/
+/Reports/
+/scripts/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# ---- Packaging output ----
+/dist/
+*.zip
+
+# ---- Editors / OS ----
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# ---- Runtime evidence from skill runs ----
+# Skills write evidence into caller-supplied run directories. If one is created
+# inside the repo during development, keep it out of version control.
+/run/
+/run-*/
+*.trace
+*.xcresult

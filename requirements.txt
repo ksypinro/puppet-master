@@ -1,0 +1,29 @@
+# Puppet Master — runtime Python dependencies
+#
+#   (none)
+#
+# Every script in skills/*/scripts/ imports the Python standard library only.
+# This is a deliberate constraint: an agent skill that needs `pip install` has a
+# failure mode before it can be useful — sandboxed agents, locked-down machines,
+# and fresh checkouts all hit it.
+#
+# Verified against macOS system Python 3.9.6 (ships with the Xcode Command Line
+# Tools), and enforced in CI by .github/workflows/ci.yml.
+#
+# `pip install -r requirements.txt` is therefore a no-op and is not needed.
+#
+# The real dependencies are external binaries that cannot be vendored:
+#
+#   REQUIRED   macOS, Python 3.9+
+#   REQUIRED   Full Xcode  — xcrun, simctl, xcodebuild, lldb
+#   REQUIRED   xctrace     — ios-instruments-profiler only; full Xcode, NOT the
+#                            standalone Command Line Tools package
+#   OPTIONAL   axe / idb / Appium+WDA / XcodeBuildMCP
+#                          — ios-simulator-driver input. simctl has no tap verb;
+#                            without one of these the skill can observe but not act.
+#   OPTIONAL   A physical Apple device
+#                          — required for real CPU, GPU, thermal, energy and
+#                            power claims; the Simulator cannot substitute.
+#
+# Check this machine:   python3 tools/doctor.py
+# Full audit:           docs/DEPENDENCIES.md

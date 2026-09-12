@@ -1,0 +1,13 @@
+# Puppet Master — development dependencies
+#
+# Contributing needs nothing beyond Python 3.9+ either: the validator and the
+# capability probe are stdlib-only, and CI runs them with no install step.
+#
+#   python3 tools/validate_skills.py --strict
+#   python3 tools/doctor.py
+#
+# The tools below are optional quality-of-life for contributors. CI does not
+# require them, and no code in this repository imports them.
+
+ruff>=0.6          ; python_version >= "3.9"   # linting (line length 100)
+shellcheck-py>=0.10; python_version >= "3.9"   # install.sh / uninstall.sh linting

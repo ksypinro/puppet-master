@@ -1,0 +1,17 @@
+{
+  "name": "puppet-master",
+  "description": "iOS device and Simulator control skills for coding agents.",
+  "owner": {
+    "name": "Kazi Samin Yeaser",
+    "url": "https://github.com/ksypinro"
+  },
+  "plugins": [
+    {
+      "name": "puppet-master",
+      "source": "./",
+      "description": "Drive, inspect, debug, and profile iOS apps from an agent: Simulator UI automation, native view hierarchy evidence, LLDB root-cause analysis, and Instruments performance measurement.",
+      "category": "development",
+      "keywords": ["ios", "simulator", "xcode", "lldb", "instruments", "debugging"]
+    }
+  ]
+}

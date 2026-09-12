@@ -1,0 +1,12 @@
+# Default owner for everything.
+*                       @ksypinro
+
+# Skill instructions carry the evidence contract — review these closely.
+/skills/                @ksypinro
+
+# Distribution surface: a mistake here breaks installs silently.
+/install.sh             @ksypinro
+/uninstall.sh           @ksypinro
+/.claude-plugin/        @ksypinro
+/.codex-plugin/         @ksypinro
+/.github/workflows/     @ksypinro

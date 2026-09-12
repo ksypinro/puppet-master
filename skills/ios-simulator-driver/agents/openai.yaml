@@ -1,0 +1,12 @@
+# Codex skill metadata (agents/openai.yaml).
+# Additive: runtimes that do not understand this file ignore it.
+# Spec: https://learn.chatgpt.com/docs/build-skills
+interface:
+  display_name: "iOS Simulator Driver"
+  short_description: "Observe, drive, verify, and recover iOS Simulator UI"
+  default_prompt: "Use $ios-simulator-driver to drive the selected iOS Simulator and verify each UI change."
+
+policy:
+  # These skills are safe to route to implicitly; they take no destructive
+  # action without explicit authorization (see each SKILL.md safety section).
+  allow_implicit_invocation: true

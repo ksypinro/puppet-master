@@ -1,0 +1,12 @@
+# Codex skill metadata (agents/openai.yaml).
+# Additive: runtimes that do not understand this file ignore it.
+# Spec: https://learn.chatgpt.com/docs/build-skills
+interface:
+  display_name: "iOS View Hierarchy Debugger"
+  short_description: "Explain runtime iOS UI from native view hierarchy evidence"
+  default_prompt: "Use $ios-view-hierarchy-debugger to explain why this view is misplaced, clipped, or untappable."
+
+policy:
+  # These skills are safe to route to implicitly; they take no destructive
+  # action without explicit authorization (see each SKILL.md safety section).
+  allow_implicit_invocation: true

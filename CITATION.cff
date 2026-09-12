@@ -1,0 +1,32 @@
+cff-version: 1.2.0
+title: "Puppet Master: Composable Agent Skills for iOS Simulator and Device Control"
+message: "If you use these skills in your work, please cite this repository."
+type: software
+authors:
+  - family-names: Yeaser
+    given-names: Kazi Samin
+    alias: ksypinro
+repository-code: "https://github.com/ksypinro/puppet-master"
+url: "https://github.com/ksypinro/puppet-master"
+abstract: >-
+  Four composable Agent Skills that give LLM coding agents an evidence-based
+  closed loop over iOS applications: Simulator UI automation with verified
+  postconditions, native view hierarchy capture with geometry and constraints,
+  LLDB code-state root-cause analysis, and Instruments performance measurement
+  with bounded, reproducible evidence. Conforms to the Agent Skills open
+  specification and installs into Claude Code, Codex, Cline, and other
+  compatible agent runtimes.
+keywords:
+  - agent-skills
+  - ios
+  - simulator
+  - xcode
+  - lldb
+  - instruments
+  - ui-automation
+  - view-hierarchy
+  - llm-agents
+  - debugging
+license: MIT
+version: 1.0.0
+date-released: "2026-09-12"

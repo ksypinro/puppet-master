@@ -1,0 +1,12 @@
+version: 2
+updates:
+  # This repository has no runtime package dependencies (see requirements.txt),
+  # so only the CI actions themselves need watching.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "ci"
+    labels:
+      - dependencies

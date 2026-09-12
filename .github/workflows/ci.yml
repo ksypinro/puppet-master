@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate skills (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.9 is the supported floor -- it is what macOS ships with the Xcode
+        # Command Line Tools. Skills must not require anything newer.
+        python: ["3.9", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Agent Skills spec conformance
+        run: python3 tools/validate_skills.py --strict
+
+      - name: Compile every script against the supported floor
+        run: |
+          mapfile -t files < <(find skills tools -name '*.py' -not -path '*/__pycache__/*')
+          python3 -m py_compile "${files[@]}"
+          echo "compiled ${#files[@]} scripts"
+
+      - name: No third-party imports
+        # The stdlib-only guarantee is the reason install.sh never touches the
+        # network. Enforce it rather than trusting review to catch a regression.
+        run: python3 tools/check_imports.py
+
+      - name: Manifests are valid JSON
+        run: |
+          for f in .claude-plugin/plugin.json .claude-plugin/marketplace.json \
+                   .codex-plugin/plugin.json; do
+            python3 -m json.tool "$f" > /dev/null && echo "ok  $f"
+          done
+
+      - name: Manifest versions agree
+        run: |
+          python3 - <<'PY'
+          import json, re, pathlib, sys
+
+          claude = json.loads(pathlib.Path(".claude-plugin/plugin.json").read_text())["version"]
+          codex = json.loads(pathlib.Path(".codex-plugin/plugin.json").read_text())["version"]
+          citation = re.search(r"^version:\s*(.+)$",
+                               pathlib.Path("CITATION.cff").read_text(), re.M).group(1).strip()
+
+          versions = {"claude-plugin": claude, "codex-plugin": codex, "CITATION.cff": citation}
+          for path in sorted(pathlib.Path("skills").glob("*/SKILL.md")):
+              m = re.search(r'^\s+version:\s*"?([^"\n]+)"?', path.read_text(), re.M)
+              if m:
+                  versions[path.parent.name] = m.group(1).strip()
+
+          if len(set(versions.values())) != 1:
+              print("Version mismatch:")
+              for k, v in versions.items():
+                  print(f"  {v:12s} {k}")
+              sys.exit(1)
+          print(f"all manifests at {claude}")
+          PY
+
+  shell:
+    name: Shell scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax check
+        run: bash -n install.sh && bash -n uninstall.sh
+
+      - name: ShellCheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          severity: warning
+          scandir: "."
+
+  install:
+    name: Install on macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Capability probe
+        # Runners have Xcode but no booted Simulator; the probe must still run
+        # cleanly and report honestly rather than crashing.
+        run: python3 tools/doctor.py || true
+
+      - name: Dry run
+        run: ./install.sh --list
+
+      - name: Install and verify
+        run: |
+          ./install.sh --agent claude
+          test -L "$HOME/.claude/skills/ios-simulator-driver" \
+            || { echo "symlink not created"; exit 1; }
+          test -f "$HOME/.claude/skills/ios-simulator-driver/SKILL.md" \
+            || { echo "symlink does not resolve"; exit 1; }
+          echo "install verified"
+
+      - name: Install is idempotent
+        run: ./install.sh --agent claude | grep -q "skipped" \
+          || { echo "re-run should skip existing skills"; exit 1; }
+
+      - name: Uninstall and verify
+        run: |
+          ./uninstall.sh --yes
+          test ! -e "$HOME/.claude/skills/ios-simulator-driver" \
+            || { echo "uninstall left files behind"; exit 1; }
+          echo "uninstall verified"

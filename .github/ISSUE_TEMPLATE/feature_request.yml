@@ -1,0 +1,48 @@
+name: Feature request
+description: Propose a capability, a new skill, or runtime support
+labels: ["enhancement"]
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What kind of change
+      options:
+        - New capability in an existing skill
+        - A new skill
+        - Support for another agent runtime
+        - Installer or tooling
+        - Documentation
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to find out about an iOS app that you currently cannot?
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: What evidence would answer it
+      description: >
+        Which tool produces that evidence (xcrun, lldb, xctrace, a driver), and how would
+        the agent know the answer is trustworthy? See ARCHITECTURE.md — "The evidence model".
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Why it belongs in its own skill
+      description: >
+        Only for new skills. If it shares a failure mode and an authority boundary with an
+        existing skill, it is probably a references/ file in that skill instead.
+
+  - type: input
+    id: runtime-docs
+    attributes:
+      label: Runtime documentation
+      description: "Only for runtime support: link to the vendor's documented skill discovery path."

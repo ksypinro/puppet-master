@@ -1,0 +1,12 @@
+# Codex skill metadata (agents/openai.yaml).
+# Additive: runtimes that do not understand this file ignore it.
+# Spec: https://learn.chatgpt.com/docs/build-skills
+interface:
+  display_name: "iOS Instruments Profiler"
+  short_description: "Record, reduce, and compare iOS performance evidence"
+  default_prompt: "Use $ios-instruments-profiler to measure this performance problem and report bounded evidence."
+
+policy:
+  # These skills are safe to route to implicitly; they take no destructive
+  # action without explicit authorization (see each SKILL.md safety section).
+  allow_implicit_invocation: true

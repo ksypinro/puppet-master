@@ -1,0 +1,28 @@
+{
+  "name": "puppet-master",
+  "version": "1.0.0",
+  "description": "Four composable Agent Skills for driving, inspecting, debugging, and profiling iOS apps on Simulator and device.",
+  "author": {
+    "name": "Kazi Samin Yeaser",
+    "url": "https://github.com/ksypinro"
+  },
+  "homepage": "https://github.com/ksypinro/puppet-master#readme",
+  "repository": "https://github.com/ksypinro/puppet-master",
+  "license": "MIT",
+  "keywords": ["ios", "simulator", "xcode", "lldb", "instruments", "debugging", "agent-skills"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Puppet Master",
+    "shortDescription": "Drive, inspect, debug, and profile iOS apps",
+    "longDescription": "Four composable skills that give an agent a closed observe-act-verify loop over iOS: Simulator UI automation, native view hierarchy evidence, LLDB code-state root-cause analysis, and Instruments performance measurement. Every skill reports bounded evidence and distinguishes observation from inference.",
+    "developerName": "Kazi Samin Yeaser",
+    "category": "Developer Tools",
+    "capabilities": ["Interactive", "Write"],
+    "websiteURL": "https://github.com/ksypinro/puppet-master",
+    "defaultPrompt": [
+      "Drive the iOS Simulator and verify the checkout flow works.",
+      "Explain why this button is untappable on the current screen.",
+      "Measure cold launch time and compare it against the baseline."
+    ]
+  }
+}

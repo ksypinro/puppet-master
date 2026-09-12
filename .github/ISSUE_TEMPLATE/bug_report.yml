@@ -1,0 +1,69 @@
+name: Bug report
+description: A skill did the wrong thing, or a script or the installer failed
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Most skill bugs are "the agent took the wrong action given this evidence."
+        That is invisible without the transcript, so please include it below.
+
+  - type: dropdown
+    id: skill
+    attributes:
+      label: Which skill
+      options:
+        - ios-simulator-driver
+        - ios-view-hierarchy-debugger
+        - lldb-code-state-debugger
+        - ios-instruments-profiler
+        - install.sh / uninstall.sh
+        - tools/doctor.py or tools/validate_skills.py
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: agent
+    attributes:
+      label: Agent and version
+      placeholder: "Claude Code 2.1.x / Codex 0.142.5 / Cline 3.48"
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Capability probe output
+      description: "Output of `python3 tools/doctor.py` — this answers most environment questions at once."
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what happened
+    validations:
+      required: true
+
+  - type: textarea
+    id: transcript
+    attributes:
+      label: Transcript
+      description: >
+        The relevant exchange — what you asked, which skill activated, what commands it
+        ran, what it concluded. Redact anything sensitive; view hierarchies and traces
+        can contain on-screen text, URLs, and file paths.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Boot iPhone 17 Pro, iOS 27.0
+        2. Launch com.example.app
+        3. Ask the agent to …
