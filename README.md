@@ -201,6 +201,7 @@ One skill tree, three distribution manifests over it, no duplication and no buil
 | Document | Contents |
 |---|---|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Why a toolkit and not four skills; why no skill router; the evidence model |
+| [ROADMAP.md](ROADMAP.md) | Coverage against the CLI research baseline, and the five planned skills |
 | [docs/INSTALL.md](docs/INSTALL.md) | Every install path, verification, troubleshooting |
 | [docs/RUNTIMES.md](docs/RUNTIMES.md) | Discovery paths per agent, with sources |
 | [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) | Full dependency audit and rationale |

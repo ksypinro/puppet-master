@@ -101,7 +101,7 @@ The real dependencies are external binaries — `xcrun`, `simctl`, `xctrace`, `l
 
 ## Known gaps
 
-Honest limits, in rough priority order:
+Honest limits, in rough priority order. [ROADMAP.md](ROADMAP.md) covers what is missing at the *capability* level; this section is about the structure that supports it.
 
 - **Session state lives in the conversation, not on disk.** Each skill instructs the agent to preserve UDID, bundle ID, PID, driver session, and run directory across steps. That instruction is load-bearing for composition and is the first thing lost to context compaction. A `session.json` handoff file written by `ios-simulator-driver` and read by the other three would make it durable. This is the highest-value planned change.
 - **Shared substrate is duplicated as prose.** Target binding, run-directory conventions, and redaction rules are restated in each `SKILL.md`. Tolerable at four skills; it will drift at eight.

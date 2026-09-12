@@ -13,9 +13,12 @@ For skills, versioning is interpreted as:
 ## [Unreleased]
 
 ### Planned
-- `session.json` handoff file so target binding survives context compaction (see [ARCHITECTURE.md](ARCHITECTURE.md#known-gaps)).
-- Shared substrate extracted from duplicated prose across the four `SKILL.md` files.
-- End-to-end fixture app exercising all four skills in one run.
+See [ROADMAP.md](ROADMAP.md) for the full plan and its rationale.
+
+- `ios-test-engineer`, `ios-build-engineer`, and `ios-device-operator` — the three skills that close the remaining rows of the research baseline's capability map.
+- `session.json` handoff file so target binding survives context compaction.
+- Shared substrate extracted from duplicated prose across the `SKILL.md` files.
+- End-to-end fixture app exercising the full build → install → drive → test → diagnose chain.
 
 ## [1.0.0] — 2026-09-12
 

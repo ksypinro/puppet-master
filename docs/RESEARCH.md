@@ -15,7 +15,7 @@ The findings that matter are already in the skills: every `references/` file is 
 | Xcode View Debugger and LLM Method Parity | `ios-view-hierarchy-debugger` capability limits |
 | Xcode LLDB Debugging and LLM Root-Cause Analysis | `lldb-code-state-debugger` |
 | iOS Instruments CLI and LLM Performance Research | `ios-instruments-profiler` |
-| iOS Developer CLI — Deep Analysis | the shared toolchain boundaries in every skill |
+| iOS Developer CLI — Deep Analysis | the shared toolchain boundaries in every skill, and the capability map that [ROADMAP.md](../ROADMAP.md) is measured against |
 
 A second pass audited the existing ecosystem rather than the toolchain — XcodeBuildMCP, LLVM's LLDB-DAP and MCP work, CodeLLDB, three independent LLDB MCP servers, Chisel, and AXe — to establish what was already solved, what was claimed but unverified, and what had to be built. That audit is why `ios-simulator-driver` selects among existing drivers instead of shipping another one.
 
