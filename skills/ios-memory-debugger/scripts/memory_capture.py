@@ -5,6 +5,7 @@
     probe    --pid N                      what can be captured from this target
     capture  --pid N --out DIR            capture, then validate the artifact
     validate <graph>                      is this artifact usable?
+    watch    --pid N                      footprint time series while you act
 
 WHY THIS EXISTS
 
@@ -221,6 +222,68 @@ def probe(pid: int, wait: int = READY_TIMEOUT) -> Dict[str, Any]:
 
 
 # --------------------------------------------------------------------------
+# watch -- footprint over time, without Instruments
+# --------------------------------------------------------------------------
+
+FOOTPRINT_TOTAL = re.compile(r"^\s*(\d+) B\s+(\d+) B\s+(\d+) B\s+(\d+)\s+TOTAL")
+PHYS = re.compile(r"phys_footprint:\s*(\d+) B")
+PHYS_PEAK = re.compile(r"phys_footprint_peak:\s*(\d+) B")
+
+
+def watch(pid: int, interval: float = 0.5, duration: float = 10.0) -> Dict[str, Any]:
+    """Sample physical footprint at an interval while the caller drives the app.
+
+    `footprint --sample` gives a time series with a per-region-category
+    breakdown and a running peak, at sub-second resolution, with no trace file,
+    no template and no build change. For "does memory grow while I repeat this
+    action" it is lighter than Instruments -- though Instruments remains the
+    right tool for allocation churn within an interval.
+    """
+    alive = run(["ps", "-p", str(pid), "-o", "pid="], timeout=30)
+    if alive["exit"] != 0 or not alive["stdout"].strip():
+        raise ToolError(f"no process {pid}")
+
+    result = run(["footprint", "--pid", str(pid), "-f", "bytes",
+                  "--sample", str(interval), "--sample-duration", str(duration)],
+                 timeout=int(duration) + 120)
+
+    samples = []
+    for block in re.split(r"(?=Auxiliary data:)", result["stdout"]):
+        phys, peak = PHYS.search(block), PHYS_PEAK.search(block)
+        if phys:
+            samples.append({"physFootprint": int(phys.group(1)),
+                            "physFootprintPeak": int(peak.group(1)) if peak else None})
+
+    verdict, delta, growth = "unknown", None, None
+    if len(samples) >= 2:
+        first, last = samples[0]["physFootprint"], samples[-1]["physFootprint"]
+        delta = last - first
+        growth = (delta / first * 100) if first else None
+        # A single run cannot separate growth from a cache warming up. Say so.
+        if abs(growth or 0) < 2:
+            verdict = "stable"
+        elif (growth or 0) > 0:
+            verdict = "grew"
+        else:
+            verdict = "shrank"
+
+    return {
+        "pid": pid, "interval": interval, "duration": duration,
+        "sampleCount": len(samples), "samples": samples,
+        "firstBytes": samples[0]["physFootprint"] if samples else None,
+        "lastBytes": samples[-1]["physFootprint"] if samples else None,
+        "peakBytes": max((s["physFootprintPeak"] or 0 for s in samples), default=None),
+        "deltaBytes": delta,
+        "growthPercent": round(growth, 2) if growth is not None else None,
+        "verdict": verdict,
+        "note": ("Physical footprint, not heap payload -- they are different "
+                 "accounting domains. One observation of growth is not a leak: "
+                 "repeat the same scenario in one launch and compare the "
+                 "settled value after each cycle."),
+    }
+
+
+# --------------------------------------------------------------------------
 # capture
 # --------------------------------------------------------------------------
 
@@ -333,6 +396,32 @@ def _render_probe(d: Dict[str, Any]) -> None:
     print()
 
 
+def _render_watch(d: Dict[str, Any]) -> None:
+    print(f"\npid {d['pid']} — {d['sampleCount']} samples "
+          f"@ {d['interval']}s over {d['duration']}s\n")
+    if not d["sampleCount"]:
+        print("  no samples captured\n")
+        return
+    print(f"  first : {d['firstBytes']:,} B")
+    print(f"  last  : {d['lastBytes']:,} B")
+    if d["peakBytes"]:
+        print(f"  peak  : {d['peakBytes']:,} B")
+    if d["deltaBytes"] is not None:
+        sign = "+" if d["deltaBytes"] >= 0 else ""
+        print(f"  delta : {sign}{d['deltaBytes']:,} B "
+              f"({sign}{d['growthPercent']}%)  → {d['verdict'].upper()}")
+    # a plain sparkline over the series
+    vals = [s["physFootprint"] for s in d["samples"]]
+    if len(vals) > 1:
+        lo, hi = min(vals), max(vals)
+        span = (hi - lo) or 1
+        bars = "▁▂▃▄▅▆▇█"
+        line = "".join(bars[min(len(bars) - 1, int((v - lo) / span * (len(bars) - 1)))]
+                       for v in vals)
+        print(f"\n  {line}   {lo:,} → {hi:,} B")
+    print(f"\n  {d['note']}\n")
+
+
 def _render_capture(d: Dict[str, Any]) -> None:
     if not d["captured"]:
         print(f"\nCAPTURE FAILED")
@@ -357,7 +446,8 @@ def _render_capture(d: Dict[str, Any]) -> None:
 def main() -> int:
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("command", choices=["resolve", "probe", "capture", "validate"])
+    p.add_argument("command",
+                   choices=["resolve", "probe", "capture", "validate", "watch"])
     p.add_argument("graph", nargs="?", type=Path, help="graph (for validate)")
     p.add_argument("--pid", type=int)
     p.add_argument("--bundle-id")
@@ -372,6 +462,10 @@ def main() -> int:
     p.add_argument("--content", action="store_true",
                    help="omit --noContent (exposes allocation contents)")
     p.add_argument("--wait", type=int, default=READY_TIMEOUT)
+    p.add_argument("--interval", type=float, default=0.5,
+                   help="watch: seconds between samples")
+    p.add_argument("--duration", type=float, default=10.0,
+                   help="watch: total seconds to sample")
     p.add_argument("--json", action="store_true")
     p.set_defaults(history=None)
     args = p.parse_args()
@@ -383,6 +477,11 @@ def main() -> int:
             if not args.pid:
                 p.error("probe requires --pid")
             result, render = probe(args.pid, args.wait), _render_probe
+        elif args.command == "watch":
+            if not args.pid:
+                p.error("watch requires --pid")
+            result = watch(args.pid, args.interval, args.duration)
+            render = _render_watch
         elif args.command == "capture":
             if not args.pid or not args.out:
                 p.error("capture requires --pid and --out")
@@ -415,6 +514,7 @@ def main() -> int:
         "probe": lambda r: bool(r.get("capturable")),
         "capture": lambda r: bool(r.get("captured")),
         "validate": lambda r: bool(r.get("readable")),
+        "watch": lambda r: r.get("sampleCount", 0) > 0,
     }[args.command](result)
     return 0 if ok else 1
 

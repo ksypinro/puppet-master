@@ -13,6 +13,22 @@ For skills, versioning is interpreted as:
 ## [Unreleased]
 
 ### Added
+- **`ios-memory-debugger` retained-size analysis.** A capability survey of the
+  Darwin memory toolchain found `leaks --dominatorTree` — undocumented, named
+  only inside another flag's description and absent from every man page — which
+  computes the total size of each node *and everything it dominates*. That is
+  retained size, the quantity both research reports declare unavailable.
+  Measured at 2.4 s over a 355,948-node real iOS app, and 0.5 s over a capture
+  taken with **no** `MallocStackLogging`, so it needs no instrumented relaunch.
+
+  Six new commands: `retained` and `biggest` (dominator tree), `graph` (bulk
+  edge extraction — 967,750 edges in 10.5 s versus 3.7 hours for the
+  per-address walk the reports propose), `zones` (allocator capacity versus
+  live payload), `history` (four `malloc_history` modes including
+  high-water-mark composition), and `watch` (footprint time series via
+  `footprint --sample`, no trace file or build change).
+
+### Added
 - **`ios-memory-debugger`** — investigate native iOS memory from heap snapshots:
   object layouts, retaining paths, allocation history, VM accounting. Ships
   `memory_capture.py` (resolve · probe · capture · validate) and

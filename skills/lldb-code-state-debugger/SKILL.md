@@ -4,7 +4,7 @@ description: Debug live native application code state with LLDB. Use to reproduc
 license: MIT
 metadata:
   author: Kazi Samin Yeaser
-  version: "1.2.0"
+  version: "1.3.0"
   repository: https://github.com/ksypinro/puppet-master
   short-description: Debug live native application code state with LLDB
 ---

@@ -8,6 +8,12 @@
     paths    <graph> <address>        retaining paths toward roots
     diff     <before> <after>         what changed between two checkpoints
 
+    retained <graph> [address]        what a node dominates -- retained size
+    biggest  <graph>                  ranked by ownership, not by class total
+    graph    <graph>                  the reference graph, with honest coverage
+    zones    <graph>                  allocator capacity vs live payload
+    history  <graph> [--mode M]       allocation provenance and peak
+
 Add --json for machine-readable output.
 
 TWO TRAPS THIS EXISTS TO CLOSE
@@ -46,6 +52,9 @@ from typing import Any, Dict, List, Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from memgraph_util import (  # noqa: E402
     ToolError, human_bytes, interpret_leaks, require_graph, run,
+)
+from memgraph_dominator import (  # noqa: E402
+    HISTORY_MODES, biggest, graph_edges, history, retained, zones,
 )
 
 HEX = re.compile(r"^0x[0-9a-fA-F]+$")
@@ -382,15 +391,116 @@ def _render_diff(d: Dict[str, Any]) -> None:
     print(f"\n  {d['note']}\n")
 
 
+def _n(v):
+    return f"{v:,}" if isinstance(v, int) else "—"
+
+
+def _render_retained(d: Dict[str, Any]) -> None:
+    tot = d.get("total") or {}
+    print(f"\ntotal dominated: {_n(tot.get('retainedBytes'))} bytes "
+          f"across {_n(tot.get('count'))} allocations\n")
+
+    if d["address"] and not d["found"]:
+        print(f"  {d['detail']}\n")
+        return
+
+    if d["address"]:
+        n = d["node"]
+        own = n["ownBytes"]
+        amp = f"  ({n['retainedBytes']/own:,.0f}x its own size)" if own else ""
+        print(f"  {n['class']}  {d['address']}")
+        if n["referenceName"]:
+            print(f"  referenced as: {n['referenceName']}")
+        print(f"  own size     : {_n(own)} bytes")
+        print(f"  DOMINATES    : {_n(n['retainedBytes'])} bytes "
+              f"across {_n(n['count'])} allocations{amp}")
+        if d["ownerChain"]:
+            chain = " → ".join((o["vmRegion"] or o["class"] or "TOTAL")
+                               for o in d["ownerChain"])
+            print(f"  owned via    : {chain}")
+        if d["children"]:
+            print("\n  it dominates:")
+            for c in d["children"][:8]:
+                print(f"    {_n(c['retainedBytes']):>12}  "
+                      f"{(c['class'] or c['text'])[:52]}")
+    else:
+        print("  top-level dominators")
+        for r in d["roots"]:
+            print(f"    {_n(r['retainedBytes']):>12}  "
+                  f"{(r['vmRegion'] or r['class'] or r['text'])[:56]}")
+    print(f"\n  {d['note']}\n")
+
+
+def _render_biggest(d: Dict[str, Any]) -> None:
+    print(f"\nranked by retained bytes (min {_n(d['minBytes'])})\n")
+    print(f"  {'retained':>12}  {'own':>9}  {'amp':>9}  what")
+    print("  " + "-" * 74)
+    for n in d["nodes"]:
+        amp = f"{n['amplification']:,.0f}x" if n.get("amplification") else "—"
+        label = (n["class"] or n["vmRegion"] or n["text"])[:34]
+        ref = f"  {n['referenceName']}" if n.get("referenceName") else ""
+        print(f"  {_n(n['retainedBytes']):>12}  {_n(n['ownBytes']):>9}  "
+              f"{amp:>9}  {label}{ref[:24]}")
+    print(f"\n  {d['note']}\n")
+
+
+def _render_graph(d: Dict[str, Any]) -> None:
+    print(f"\n{_n(d['nodes'])} nodes · {_n(d['edges'])} edges · "
+          f"coverage {d['coverage']*100:.0f}%\n")
+    for k, v in sorted(d["byOwnership"].items(), key=lambda kv: -kv[1]):
+        print(f"    {v:>9,}  {k}")
+    print(f"\n    {d['interiorPointers']:>9,}  interior pointers")
+    print(f"    {d['unresolvedTargets']:>9,}  unresolved targets")
+    print(f"\n  {d['note']}\n")
+
+
+def _render_zones(d: Dict[str, Any]) -> None:
+    print()
+    for z in d["zones"]:
+        flag = "!" if z["utilisationPercent"] <= 25 else " "
+        print(f"  {flag} {z['zone'][:40]:42s} capacity {z['capacityText']:>10}  "
+              f"live {z['liveText']:>9}  {z['utilisationPercent']:>3}% used")
+    print(f"\n  {d['note']}\n")
+
+
+def _render_history(d: Dict[str, Any]) -> None:
+    print(f"\nmode: {d['mode']}   allocation history in graph: "
+          f"{'yes' if d['hasAllocationHistory'] else 'NO'}")
+    if d["highWaterMark"]:
+        print(f"  high water mark : {d['highWaterMark']['highWaterMark']} "
+              f"(record {d['highWaterMark']['recordIndex']})")
+    if d["physicalFootprintPeak"]:
+        print(f"  physical peak   : {d['physicalFootprintPeak']}")
+    if d["highWaterMark"] or d["physicalFootprintPeak"]:
+        print(f"  {d['peakNote']}")
+    if d["sample"]:
+        print()
+        for line in d["sample"][:18]:
+            print(f"  {line[:100]}")
+    if d.get("note"):
+        print(f"\n  {d['note']}")
+    print()
+
+
 def main() -> int:
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("command",
-                   choices=["summary", "classes", "objects", "layout", "paths", "diff"])
+                   choices=["summary", "classes", "objects", "layout", "paths",
+                            "diff", "retained", "biggest", "graph", "zones",
+                            "history"])
     p.add_argument("graph", type=Path)
     p.add_argument("target", nargs="?", help="class pattern, address, or after-graph")
     p.add_argument("--match", help="classes: substring filter")
     p.add_argument("--limit", type=int, default=50)
+    p.add_argument("--mode", default="by-size",
+                   help=f"history mode: {', '.join(HISTORY_MODES)}")
+    p.add_argument("--min-bytes", type=int, default=4096,
+                   help="biggest: ignore nodes retaining less than this")
+    p.add_argument("--include-vm", action="store_true",
+                   help="biggest: include VM regions, not only objects")
+    p.add_argument("--virtual", action="store_true",
+                   help="size VM regions as virtual rather than dirty+compressed")
     p.add_argument("--json", action="store_true")
     args = p.parse_args()
 
@@ -411,10 +521,23 @@ def main() -> int:
             if not args.target:
                 p.error("paths requires an address")
             result, render = paths(args.graph, args.target), _render_paths
-        else:
+        elif args.command == "diff":
             if not args.target:
                 p.error("diff requires an after-graph")
             result, render = diff(args.graph, Path(args.target)), _render_diff
+        elif args.command == "retained":
+            result = retained(args.graph, args.target, args.virtual, args.limit)
+            render = _render_retained
+        elif args.command == "biggest":
+            result = biggest(args.graph, args.limit, args.min_bytes,
+                             args.virtual, args.include_vm)
+            render = _render_biggest
+        elif args.command == "graph":
+            result, render = graph_edges(args.graph), _render_graph
+        elif args.command == "zones":
+            result, render = zones(args.graph), _render_zones
+        else:
+            result, render = history(args.graph, args.mode, args.limit), _render_history
     except ToolError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

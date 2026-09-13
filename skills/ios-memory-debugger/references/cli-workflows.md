@@ -154,7 +154,28 @@ For broad structural discovery only:
 leaks --referenceTree --groupByType --noContent <GRAPH>
 ```
 
-This is a parent-selected display projection, not complete adjacency. Do not run exact retained-size/dominator analysis on it. Enumerating per-address layouts into a complete graph is future backend work, not implemented here.
+This is a parent-selected display projection, not complete adjacency — measured at 466 of 888 nodes on one graph. Do not run retained-size analysis on it.
+
+### Use the dominator tree instead
+
+`leaks --dominatorTree` is **undocumented** — it is named only inside the description of `--groupByType`, and appears in no man page — but it computes retained size directly:
+
+```sh
+python3 scripts/memgraph_query.py retained <GRAPH> [<ADDRESS>]
+python3 scripts/memgraph_query.py biggest  <GRAPH> [--include-vm]
+```
+
+Each line of Apple's tree carries the allocation count and **total size for that node and every node it dominates**. Measured: 2.4 s over 355,948 nodes, and it works on a capture with no `MallocStackLogging`.
+
+`leaks --virtual` sizes VM regions as virtual rather than dirty+compressed — on one graph that moved the total from 978 K to 72.3 M. That is a different accounting domain, not a better number; pass `--virtual` only when the question is address space.
+
+The whole reference graph is also extractable in bulk, and far faster than a per-address walk:
+
+```sh
+python3 scripts/memgraph_query.py graph <GRAPH>
+```
+
+Measured on a real app: 967,750 edges in 10.5 s, of which 42% are `__strong` and 6% `__weak`. The per-address alternative takes 3.7 hours for the same graph. The command reports its own coverage, because a node with no layout and a node with no pointers are indistinguishable — so the edge set is a lower bound and must not be used for dominator analysis. Use `retained` for that.
 
 ## E Compare checkpoints or inspect recorded history
 
@@ -170,6 +191,22 @@ leaks --autoreleasePools <GRAPH>
 Compare compatible same-process checkpoints for accumulation and supplement tool differences with class-count/byte deltas in both directions. Do not assert address-based survival without addressing reuse. Across independent launches use type/stack distributions and aligned phases, not pointer joins.
 
 History queries require relevant recorded events. A recorded heap-plus-VM high-water mark is not peak physical footprint and may include logging storage. For transient timeline questions route to `ios-instruments-profiler`, discover templates and verify exported data from the actual target. Do not issue an assumed universal `xctrace` schema.
+
+Allocator-level questions are separate from object retention:
+
+```sh
+python3 scripts/memgraph_query.py zones <GRAPH>
+```
+
+`heap -z` reports capacity against live payload. A zone at 1% utilisation is fragmentation or churn, and no amount of reference-graph work explains it.
+
+For footprint over time without Instruments:
+
+```sh
+python3 scripts/memory_capture.py watch --pid <PID> --interval 0.5 --duration 30
+```
+
+`footprint --sample` yields a physical-footprint series with a running peak at sub-second resolution, no trace file and no build change. Allocation churn within an interval still belongs to `ios-instruments-profiler`.
 
 Duplicate-string analysis uses `stringdups` only after checking its installed help and obtaining an appropriate content-bearing artifact. Do not recover or expose sensitive strings merely to count duplicates. Prefer local aggregate counts and lengths where possible.
 

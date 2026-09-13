@@ -5,7 +5,7 @@ compatibility: Requires macOS, full Xcode and Python 3.9+, plus permission to in
 license: MIT
 metadata:
   author: Kazi Samin Yeaser
-  version: "1.2.0"
+  version: "1.3.0"
   repository: https://github.com/ksypinro/puppet-master
   short-description: Investigate native iOS app memory from heap snapshots
 ---
@@ -23,7 +23,8 @@ Python 3.9+, standard library only. Resolve `SKILL_DIR` to this file's directory
 | Script | Role |
 |---|---|
 | `scripts/memory_capture.py` | `resolve` a process unambiguously, `probe` what it can give, `capture` with the right flags, `validate` the artifact |
-| `scripts/memgraph_query.py` | `summary` `classes` `objects` `layout` `paths` `diff` over a captured graph |
+| `scripts/memgraph_query.py` | `summary` `classes` `objects` `layout` `paths` `diff` **`retained`** **`biggest`** `graph` `zones` `history` |
+| `scripts/memgraph_dominator.py` | dominator-tree, whole-graph and allocator analysis |
 | `scripts/memgraph_util.py` | shared classification and `leaks` exit-status interpretation |
 | `scripts/test_selftest.py` | offline self-test; no Xcode or graph needed |
 
@@ -33,6 +34,34 @@ Use them rather than raw commands where they cover the operation. Each exists be
 - **`heap -addresses` matches the whole class name**, so a prefix returns zero at exit 0. `objects` lists real class names before reporting an empty result.
 - **`leaks` encodes the finding in its exit status for only some modes.** Every call is interpreted, never inferred from the exit code.
 - **A truncated graph aborts every Apple reader with SIGABRT**, not a clean error. Artifacts are classified before a reader sees them.
+
+## Retained size is available
+
+`leaks --dominatorTree` is undocumented — it appears only inside another flag's
+description, and in no man page — but it computes what every "how much would
+freeing this release" question needs. Measured: 2.4 s over a 355,948-node real
+iOS app, 0.5 s over a capture taken with **no** `MallocStackLogging`, so it needs
+no instrumented relaunch.
+
+```sh
+python3 "$SKILL_DIR/scripts/memgraph_query.py" retained /abs/Run.memgraph 0x1030a19a0
+python3 "$SKILL_DIR/scripts/memgraph_query.py" biggest  /abs/Run.memgraph
+```
+
+```
+NSMutableArray  0x1030a19a0
+referenced as: retainedCache
+own size     : 48 bytes
+DOMINATES    : 163,840 bytes across 4 allocations  (3,413x its own size)
+```
+
+`biggest` ranks by what each node retains rather than by class total, which is
+the difference between "NSMutableDictionary is numerous" and "this dictionary is
+holding 890 KB". Amplification — retained ÷ own size — finds the small object
+sitting on a large backing store.
+
+It remains a conservative scanner's view. Say **"N bytes dominated by this node
+in this capture"**, never "freeing this frees N bytes".
 
 ## Choose the evidence
 
@@ -44,6 +73,10 @@ Before a first investigation on a target, read [capabilities](references/capabil
 - Coordinate UI reproduction, LLDB, Instruments, tests, or another coding agent: [agent integration](references/agent-integration.md).
 
 Reuse an existing artifact when it answers the question. Live capture is not necessary merely because the application is still running. A question about peak memory needs interval evidence; a question about why an object is alive needs reference evidence; a question about a past retaining write needs recorded events or a new debugger reproduction.
+
+Fifteen of the eighteen questions this skill answers need **no** `MallocStackLogging` at all — including retained size. Only allocation provenance, the free/alloc event stream and high-water-mark composition require it, and enabling it costs a relaunch that destroys the state under investigation. Capture structurally first, always.
+
+For "does memory grow while I repeat this action", `memory_capture.py watch` samples physical footprint at sub-second resolution with no trace file and no build change. Route allocation *churn* within an interval to `ios-instruments-profiler`; footprint drift over a scenario does not need it.
 
 ## Establish the investigation
 

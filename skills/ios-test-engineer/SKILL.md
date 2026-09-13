@@ -5,7 +5,7 @@ license: MIT
 compatibility: Requires macOS, full Xcode, and Python 3.9+. Simulator lanes are fully supported; physical-device test execution additionally needs signing, Developer Mode and a paired device, and is not verified by this skill's fixtures. Coverage requires the run to have been recorded with -enableCodeCoverage YES.
 metadata:
   author: Kazi Samin Yeaser
-  version: "1.2.0"
+  version: "1.3.0"
   repository: https://github.com/ksypinro/puppet-master
   short-description: Run iOS tests and read the result bundle honestly
 ---
