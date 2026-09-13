@@ -5,7 +5,7 @@ license: MIT
 compatibility: Requires macOS, full Xcode, and Python 3.9+. Simulator lanes are fully supported; physical-device test execution additionally needs signing, Developer Mode and a paired device, and is not verified by this skill's fixtures. Coverage requires the run to have been recorded with -enableCodeCoverage YES.
 metadata:
   author: Kazi Samin Yeaser
-  version: "1.1.0"
+  version: "1.2.0"
   repository: https://github.com/ksypinro/puppet-master
   short-description: Run iOS tests and read the result bundle honestly
 ---
@@ -258,6 +258,7 @@ These skills are one toolkit. Route on the symptom, not on the surface:
 - A value, branch, or model state is wrong, or you need the code path that produced it — `lldb-code-state-debugger`.
 - Launch time, CPU, hangs, jank, memory growth, leaks, I/O, or power — `ios-instruments-profiler`.
 - Running a suite, reading a result bundle, classifying a failure, or coverage — **this skill**.
+- Why an object is still alive, what is retaining it, or where the bytes went at a checkpoint — `ios-memory-debugger`.
 
 Hand off when the evidence needed is not the evidence this skill produces. A
 failing test tells you *that* something is wrong; `lldb-code-state-debugger`

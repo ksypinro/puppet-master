@@ -5,7 +5,7 @@ license: MIT
 compatibility: Requires macOS and full Xcode: xctrace does not ship with the standalone Command Line Tools. Python 3.9+. Claims about real CPU, GPU, memory pressure, thermal, energy, or power require a connected physical Apple device.
 metadata:
   author: Kazi Samin Yeaser
-  version: "1.1.0"
+  version: "1.2.0"
   repository: https://github.com/ksypinro/puppet-master
   short-description: Plan, record, validate, export, reduce, compare, and explain iOS or iPadOS app p
 ---
@@ -197,7 +197,7 @@ Use `unknown`, `not captured`, `not exportable`, or `invalid` instead of numeric
 
 ## Route by symptom
 
-These five skills are one toolkit. Route on the symptom, not on the surface:
+These six skills are one toolkit. Route on the symptom, not on the surface:
 
 - Reaching a screen, dispatching taps, text, or gestures, or verifying a UI flow — `ios-simulator-driver`.
 - A view is misplaced, clipped, overlapping, mis-styled, or untappable, or you need the native tree, geometry, or constraints — `ios-view-hierarchy-debugger`.

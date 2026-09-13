@@ -13,6 +13,32 @@ For skills, versioning is interpreted as:
 ## [Unreleased]
 
 ### Added
+- **`ios-memory-debugger`** — investigate native iOS memory from heap snapshots:
+  object layouts, retaining paths, allocation history, VM accounting. Ships
+  `memory_capture.py` (resolve · probe · capture · validate) and
+  `memgraph_query.py` (summary · classes · objects · layout · paths · diff) over
+  Apple's own capture and readers.
+
+  Adversarial testing of the v0.1.0 draft found the documented capture command
+  could not run: `--fullStackHistory` is **fatal** without *full*
+  `MallocStackLogging`, producing exit 255 and no artifact, while the same file
+  recommended launching with `lite` — which `leaks` rejects by name. `capture`
+  now probes the target's logging mode and omits the flag rather than losing the
+  capture.
+
+  Four further silent failures are now guarded: `heap -addresses` matches the
+  **whole** class name, so a prefix returns zero at exit 0 (`objects` lists real
+  class names before reporting empty); a truncated graph **aborts every Apple
+  reader with SIGABRT** rather than erroring; `leaks` encodes the finding in its
+  exit status for only three of six modes; and empty versus malformed input is
+  indistinguishable from reader output alone, so artifacts are stat-classified
+  before a reader sees them.
+
+  Simulator capture is now qualified — the source research listed it as
+  unverified. Physical-device capture remains unverified and is documented as
+  such.
+
+### Added
 - **`ios-test-engineer`** — run XCTest, Swift Testing and XCUITest suites and turn
   the result bundle into trustworthy evidence. Discovers schemes (flagging any
   that are not shared), test plans and per-scheme destinations; runs with a
