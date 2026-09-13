@@ -40,8 +40,18 @@ not control — a CI artifact, a teammate's upload, something from six months ag
 | `compare --baseline-path` | introduced / resolved | PR gating |
 | `merge` | one bundle from many | matrix aggregation |
 
-`test_results.py` wraps the ones this skill needs. Reach for `xcresulttool`
-directly for the rest.
+All of these are wrapped: `test_results.py` for the per-bundle layers,
+`compare_runs.py` for `compare` and `merge`, `coverage_report.py` for `xccov`.
+
+Two are deliberately **not** wrapped:
+
+- **`get log`** — raw build and console logs. Use
+  `xcrun xcresulttool get log --path B --format json` when you need compilation
+  forensics; there is nothing useful to add around it.
+- **`export evaluations`** — Xcode 27's model-quality results. Real, and
+  genuinely test-shaped, but a different evidence contract with its own scoring
+  and judge semantics. It belongs in a skill of its own rather than bolted on
+  here.
 
 ## Summary: read both counts
 
@@ -209,9 +219,11 @@ answers whether a metric is gateable at all, which is a test-quality question.
 ## Comparing two runs
 
 ```sh
-xcrun xcresulttool compare /abs/candidate.xcresult \
-    --baseline-path /abs/baseline.xcresult --summary
+python3 scripts/compare_runs.py compare /abs/candidate.xcresult --base /abs/baseline.xcresult
 ```
+
+Wraps `xcrun xcresulttool compare`, which emits JSON natively and — unlike
+`get` — rejects a `--format` flag.
 
 Returns `introduced` / `resolved` counts across test failures, build warnings,
 analyzer issues, and tests executed. That is a complete PR gate with no history

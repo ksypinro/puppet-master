@@ -21,6 +21,21 @@ For skills, versioning is interpreted as:
   — tests a run reports as passed that failed a repetition and never appear in
   `testFailures`; and reports region-aware coverage that separates dead code from
   sub-expressions which never evaluated.
+- `compare_runs.py` — `compare` a candidate against a baseline (introduced
+  versus resolved across test failures, build warnings and analyzer issues,
+  plus tests that disappeared), `merge` bundles, and `matrix` attribution that
+  distinguishes independent failures from one bug with platform reach from one
+  unhealthy destination.
+- `test_results.py diagnostics` — exports and reads `testmanagerd.log` and
+  `scheduling.log`, so an `infrastructure` verdict rests on evidence rather than
+  on the failure text alone. Confidence drops to `medium` when the text looks
+  like a runner failure but the diagnostics do not corroborate it.
+- `test_results.py build-results` and `attachments`.
+- `test_results.py` self-test (`test_selftest.py`), which enforces that the
+  diagnostic signal patterns produce **zero** matches on passing runs. A healthy
+  `testmanagerd.log` contains `(result:error)`, `TESTMANAGERD_SIM_SOCK` and
+  `Requesting crash report collection` — loose patterns flag all three and would
+  justify retrying real regressions.
 
 ### Planned
 See [ROADMAP.md](ROADMAP.md) for the full plan and its rationale.

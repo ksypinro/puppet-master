@@ -83,13 +83,29 @@ is not a verdict.
 
 ## Step 3: infrastructure or product?
 
-`triage` pattern-matches the failure text, which is a strong hint but not proof.
-The proof is in the diagnostics:
+`triage` now does this for you: it exports the diagnostics and reads them, so an
+`infrastructure` verdict is backed by evidence rather than by the failure text
+alone. The confidence it reports says which:
+
+| Confidence | Means |
+|---|---|
+| `high` | the text matched **and** the diagnostics corroborate it |
+| `medium` | the text matched but the diagnostics show nothing — usually a product failure wearing infrastructure wording |
+| `low` | no readable diagnostics; do not retry on the text alone |
+
+To keep the exported files, or to read them yourself:
 
 ```sh
-xcrun xcresulttool export diagnostics --path /abs/run/Run.xcresult \
-    --output-path /abs/run/diagnostics
+python3 scripts/test_results.py diagnostics /abs/run/Run.xcresult --out /abs/run/diag
 ```
+
+The signal patterns are deliberately narrow, because a false positive here tells
+you to retry a real failure. A **healthy** run's `testmanagerd.log` contains
+`(result:error)` as a tuple label on successful replies, `TESTMANAGERD_SIM_SOCK`
+as an environment variable name, and `Requesting crash report collection for
+process names: …` as routine setup. Loose matching flags all three. The patterns
+are verified to produce zero matches on passing runs — `scripts/test_selftest.py`
+holds that oracle.
 
 What to read, and what each answers:
 
@@ -141,18 +157,41 @@ it stays visible. `expectedFailures` in the summary is the same kind of debt for
 
 ## Signatures treated as infrastructure
 
-From `INFRA_PATTERNS` in `test_results.py`. Matching one of these is what
-justifies a retry:
+Two separate pattern sets, both in `test_results.py`.
+
+**`INFRA_PATTERNS`** matches the *failure text* from the summary — a hint that
+the assertion may never have run:
 
 - lost connection to the test or debug runner
 - the runner app failed to launch or start
 - `Unable to lookup in current state … Shutdown` — the simulator was shut down,
-  which `xcodebuild` does after a run, so back-to-back automation hits this
-- `testmanagerd` errors
+  which `xcodebuild` does after every run, so back-to-back automation hits this
 - timed out waiting to launch, connect, or install
 - simulator failed to boot or install
 - the process died before any assertion ran
 - Developer Mode disabled, or the device is locked
 
-If a failure matches none of these, it is product evidence until proven
-otherwise.
+**`DIAG_SIGNALS`** matches the *diagnostic logs* and is the corroborating
+evidence. It is deliberately much narrower, and anchored to wording that only
+appears on failure:
+
+- `(cancelled: Yes)` — the run was cancelled rather than completed
+- `Lost connection to the test runner`
+- `Failed to establish communication with` / `Failed to install or launch` the
+  test runner
+- the runner `exited with code` / `early unexpected exit`
+- `Canceling tests due to timeout`
+- `Test operation failure:`
+- `Unable to lookup in current state: Shutdown`
+- `Timed out waiting for … launch/connect/install/ready`
+- `Failed to boot` / `Failed to install`
+
+Note what is **absent** from that second list. `testmanagerd` and `error` and
+`crash` all appear in a completely healthy log — as `TESTMANAGERD_SIM_SOCK`, as
+the `(result:error)` tuple label on successful replies, and as
+`Requesting crash report collection for process names: …`. Matching on them
+flags every passing run as infrastructure failure, and would justify retrying
+real regressions. `scripts/test_selftest.py` enforces zero matches on passing
+runs.
+
+If a failure matches neither set, it is product evidence until proven otherwise.

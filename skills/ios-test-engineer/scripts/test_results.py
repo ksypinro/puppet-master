@@ -402,6 +402,193 @@ def _infra_match(text: str) -> Optional[str]:
     return None
 
 
+def build_results(bundle: Path) -> Dict[str, Any]:
+    """Build errors, warnings and analyzer warnings recorded alongside the tests.
+
+    `status: notRequested` means no build happened in this run -- typical of
+    `test-without-building`. That is not the same as "no warnings", and is
+    reported as such rather than as a clean build.
+    """
+    try:
+        raw = get_json(bundle, "get", "build-results")
+    except ToolError as exc:
+        return {"error": str(exc)}
+
+    status = raw.get("status")
+    return {
+        "status": status,
+        "buildRan": status not in (None, "notRequested"),
+        "errorCount": raw.get("errorCount", 0),
+        "warningCount": raw.get("warningCount", 0),
+        "analyzerWarningCount": raw.get("analyzerWarningCount", 0),
+        "errors": [_issue(i) for i in raw.get("errors", []) or []],
+        "warnings": [_issue(i) for i in raw.get("warnings", []) or []],
+        "analyzerWarnings": [_issue(i) for i in raw.get("analyzerWarnings", []) or []],
+        "destination": raw.get("destination"),
+        "note": ("status 'notRequested' means no compilation happened in this "
+                 "run (test-without-building). Zero warnings here does not mean "
+                 "the build is clean -- it means nothing was built."
+                 if status == "notRequested" else None),
+    }
+
+
+def _issue(item: Dict[str, Any]) -> Dict[str, Any]:
+    loc = item.get("sourceURL") or item.get("location") or {}
+    if isinstance(loc, str):
+        loc = {"path": loc}
+    return {
+        "message": item.get("message") or item.get("title"),
+        "target": item.get("targetName"),
+        "file": loc.get("path") or loc.get("filePath"),
+        "line": loc.get("lineNumber"),
+        "issueType": item.get("issueType"),
+    }
+
+
+# Diagnostics files that decide infrastructure-versus-product, and what each
+# is evidence of. Read in this order.
+DIAGNOSTIC_FILES = (
+    ("testmanagerd.log", "did the test manager connect at all"),
+    ("scheduling.log", "worker lifecycle, PIDs, parallelisation, cancellation"),
+    ("StandardOutputAndStandardError.txt", "the test process's own output"),
+)
+
+# Lines in diagnostics that indicate the RUNNER, not the product, failed.
+#
+# These are deliberately narrow. A healthy run's testmanagerd.log legitimately
+# contains the string `(result:error)` -- it is a tuple label on a SUCCESSFUL
+# reply -- along with `TESTMANAGERD_SIM_SOCK` and
+# `Requesting crash report collection for process names: …` as routine setup.
+# Loose patterns match all three and would tell the caller to retry a real
+# failure, which is the exact mistake this skill exists to prevent.
+#
+# The oracle: these must produce ZERO matches on a fully passing run.
+DIAG_SIGNALS = [
+    (r"\(cancelled:\s*Yes\)",
+     "the run was cancelled rather than completed"),
+    (r"Lost connection to the test (runner|manager)",
+     "connection to the test runner was lost"),
+    (r"Failed to (establish communication with|install or launch) the test runner",
+     "the test runner never started"),
+    (r"(test runner|Test runner) exited (with code|unexpectedly)|early unexpected exit",
+     "the runner process died before the tests finished"),
+    (r"Canceling tests due to timeout",
+     "the run was cancelled by a timeout"),
+    (r"Test operation failure:",
+     "xcodebuild reported a test operation failure"),
+    (r"Unable to lookup in current state:\s*Shutdown",
+     "the simulator was shut down mid-operation"),
+    (r"Timed out (waiting|while waiting) for .*(launch|connect|install|ready)",
+     "timed out before the tests could run"),
+    (r"Failed to (boot|install)\b",
+     "the simulator or app could not be prepared"),
+]
+
+
+def diagnostics(bundle: Path, out_dir: Optional[Path] = None) -> Dict[str, Any]:
+    """Export and read the diagnostics that settle infrastructure vs product.
+
+    Pattern-matching a failure message is a hint. This is the evidence.
+    """
+    avail = availability(bundle)
+    if not avail.get("hasDiagnostics"):
+        return {"available": False,
+                "note": ("This bundle has no diagnostics, so an infrastructure "
+                         "classification cannot be confirmed from it.")}
+
+    import tempfile
+    target = out_dir.expanduser().resolve() if out_dir else Path(
+        tempfile.mkdtemp(prefix="xcresult-diag-"))
+    target.mkdir(parents=True, exist_ok=True)
+
+    try:
+        xcresulttool(["export", "diagnostics", "--path", str(bundle),
+                      "--output-path", str(target)], timeout=300)
+    except ToolError as exc:
+        return {"available": True, "error": str(exc)}
+
+    files, signals = [], []
+    for path in sorted(target.rglob("*")):
+        if not path.is_file():
+            continue
+        size = path.stat().st_size
+        rel = str(path.relative_to(target))
+        entry = {"path": rel, "absolute": str(path), "bytes": size}
+
+        # Only scan the small control-plane logs. The app's own stream is
+        # routinely over a megabyte and is not where runner failures appear.
+        if path.name in {n for n, _ in DIAGNOSTIC_FILES} and size < 2_000_000:
+            text = path.read_text(errors="replace")
+            entry["role"] = next(d for n, d in DIAGNOSTIC_FILES if n == path.name)
+            for pattern, meaning in DIAG_SIGNALS:
+                for m in re.finditer(pattern, text, re.I):
+                    line = text[max(0, m.start() - 90):m.end() + 90].strip()
+                    signals.append({"file": rel, "meaning": meaning,
+                                    "excerpt": " ".join(line.split())[:190]})
+        files.append(entry)
+
+    app_streams = [f for f in files
+                   if f["path"].split("/")[-1].startswith(
+                       "StandardOutputAndStandardError-")]
+
+    return {
+        "available": True,
+        "exportedTo": str(target),
+        "temporary": out_dir is None,
+        "fileCount": len(files),
+        "files": files,
+        "infrastructureSignals": signals,
+        "appLogStreams": [{"path": f["path"], "bytes": f["bytes"]}
+                          for f in app_streams],
+        "verdict": ("runner-failure-evidence-found" if signals
+                    else "no-runner-failure-evidence"),
+        "note": ("No infrastructure signal here means the runner worked and any "
+                 "failure is product evidence. The app's own stream is where "
+                 "crashes and runtime warnings appear -- read it by PID from "
+                 "the activity tree."
+                 if not signals else
+                 "Infrastructure signals found. A retry may be legitimate; "
+                 "confirm the specific failure matches one of these."),
+    }
+
+
+def attachments(bundle: Path, out_dir: Path,
+                only_failures: bool = True) -> Dict[str, Any]:
+    """Export XCTAttachments -- screenshots, videos and custom payloads."""
+    target = out_dir.expanduser().resolve()
+    target.mkdir(parents=True, exist_ok=True)
+    args = ["export", "attachments", "--path", str(bundle),
+            "--output-path", str(target)]
+    if only_failures:
+        args.append("--only-failures")
+    try:
+        xcresulttool(args, timeout=600)
+    except ToolError as exc:
+        return {"error": str(exc), "exportedTo": str(target)}
+
+    manifest_path = target / "manifest.json"
+    entries: List[Any] = []
+    if manifest_path.exists():
+        try:
+            entries = json.loads(manifest_path.read_text())
+        except json.JSONDecodeError:
+            entries = []
+
+    files = [p for p in sorted(target.rglob("*"))
+             if p.is_file() and p.name != "manifest.json"]
+    return {
+        "exportedTo": str(target),
+        "onlyFailures": only_failures,
+        "manifestEntries": len(entries) if isinstance(entries, list) else 0,
+        "fileCount": len(files),
+        "files": [{"name": p.name, "bytes": p.stat().st_size} for p in files[:50]],
+        "note": ("Empty is normal when the suite records no XCTAttachments. "
+                 "Screenshots are attached per activity step, so a UI test that "
+                 "takes none produces none."
+                 if not files else None),
+    }
+
+
 def hidden_flakes(bundle: Path) -> List[Dict[str, Any]]:
     """Find tests that PASSED overall but failed at least one repetition.
 
@@ -434,11 +621,24 @@ def hidden_flakes(bundle: Path) -> List[Dict[str, Any]]:
     return found
 
 
-def triage(bundle: Path) -> Dict[str, Any]:
-    """Classify each failure and state what a retry would and would not prove."""
+def triage(bundle: Path, read_diagnostics: bool = True) -> Dict[str, Any]:
+    """Classify each failure and state what a retry would and would not prove.
+
+    When diagnostics are available they are exported and read, so an
+    `infrastructure` verdict rests on evidence from testmanagerd/scheduling
+    rather than on pattern-matching the failure text alone.
+    """
     data = failures(bundle)
     avail = availability(bundle)
     hidden = hidden_flakes(bundle)
+
+    diag: Dict[str, Any] = {"available": False}
+    if read_diagnostics and avail.get("hasDiagnostics"):
+        try:
+            diag = diagnostics(bundle)
+        except ToolError as exc:
+            diag = {"available": True, "error": str(exc)}
+    diag_signals = diag.get("infrastructureSignals") or []
 
     classified = []
     for f in data["failures"]:
@@ -450,9 +650,24 @@ def triage(bundle: Path) -> Dict[str, Any]:
         infra = _infra_match(f.get("failureText", ""))
 
         if infra:
-            verdict, confidence = "infrastructure", "high"
-            action = ("Retry is legitimate. The assertion never ran. "
-                      "Confirm against export diagnostics before retrying.")
+            verdict = "infrastructure"
+            # The text matched a runner signature. Diagnostics either corroborate
+            # that or leave it a hint -- say which.
+            if diag_signals:
+                confidence = "high"
+                action = ("Retry is legitimate. The assertion never ran, and the "
+                          "diagnostics corroborate a runner failure.")
+            elif diag.get("available") and not diag.get("error"):
+                confidence = "medium"
+                action = ("The failure text looks like a runner failure, but the "
+                          "diagnostics show no corroborating signal. Read them "
+                          "before retrying -- this may be a product failure "
+                          "wearing infrastructure wording.")
+            else:
+                confidence = "low"
+                action = ("Matched a runner signature, but this bundle has no "
+                          "readable diagnostics to confirm it. Do not retry on "
+                          "the text alone.")
         elif len(reps) <= 1:
             verdict, confidence = "unclassified", "low"
             action = ("Single run: nothing here distinguishes a real failure from a "
@@ -498,6 +713,13 @@ def triage(bundle: Path) -> Dict[str, Any]:
         "hiddenFlakes": hidden,
         "cleanGreen": not classified and not hidden,
         "diagnosticsAvailable": avail.get("hasDiagnostics", False),
+        "diagnostics": {
+            "read": bool(diag.get("available") and not diag.get("error")),
+            "verdict": diag.get("verdict"),
+            "signals": diag_signals,
+            "exportedTo": diag.get("exportedTo"),
+            "appLogStreams": diag.get("appLogStreams", []),
+        },
         "retryPolicy": (
             "Retry ONLY failures classified `infrastructure`. Retrying a "
             "deterministic or flaky failure converts a real signal into a green "
@@ -804,6 +1026,60 @@ def _render_availability(d: Dict[str, Any]) -> None:
 # cli
 # --------------------------------------------------------------------------
 
+def _render_build(d: Dict[str, Any]) -> None:
+    if d.get("error"):
+        print(f"\n{d['error']}\n")
+        return
+    print(f"\nBuild results — status {d['status']}")
+    print(f"  errors {d['errorCount']}   warnings {d['warningCount']}   "
+          f"analyzer warnings {d['analyzerWarningCount']}")
+    for label, key in (("errors", "errors"), ("warnings", "warnings"),
+                       ("analyzer", "analyzerWarnings")):
+        for i in d.get(key, [])[:20]:
+            loc = f"{i['file']}:{i['line']}" if i.get("file") else "(no location)"
+            print(f"    [{label}] {loc}")
+            print(f"      {(i.get('message') or '')[:110]}")
+    if d.get("note"):
+        print(f"\n  ! {d['note']}")
+    print()
+
+
+def _render_diagnostics(d: Dict[str, Any]) -> None:
+    if not d.get("available"):
+        print(f"\n{d.get('note')}\n")
+        return
+    if d.get("error"):
+        print(f"\n{d['error']}\n")
+        return
+    print(f"\n{d['fileCount']} diagnostic file(s) → {d['exportedTo']}")
+    if d["temporary"]:
+        print("  (temporary directory; pass --out to keep them)")
+    print(f"\n  verdict: {d['verdict']}")
+    if d["infrastructureSignals"]:
+        print("\n  infrastructure signals")
+        for s in d["infrastructureSignals"][:12]:
+            print(f"    [{s['meaning']}]  {s['file']}")
+            print(f"      …{s['excerpt']}…")
+    if d["appLogStreams"]:
+        print("\n  app log streams (crashes and runtime warnings live here)")
+        for a in d["appLogStreams"]:
+            print(f"    {a['bytes']:>10,d} bytes  {a['path'].split('/')[-1]}")
+    print(f"\n  {d['note']}\n")
+
+
+def _render_attachments(d: Dict[str, Any]) -> None:
+    if d.get("error"):
+        print(f"\n{d['error']}\n")
+        return
+    print(f"\n{d['fileCount']} attachment(s) → {d['exportedTo']}"
+          f"{'  (failures only)' if d['onlyFailures'] else ''}")
+    for f in d["files"]:
+        print(f"    {f['bytes']:>10,d} bytes  {f['name']}")
+    if d.get("note"):
+        print(f"\n  {d['note']}")
+    print()
+
+
 COMMANDS = {
     "summary": (summary, _render_summary),
     "failures": (failures, _render_failures),
@@ -811,18 +1087,28 @@ COMMANDS = {
     "triage": (triage, _render_triage),
     "metrics": (metrics, _render_metrics),
     "availability": (availability, _render_availability),
+    "build-results": (build_results, _render_build),
 }
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=list(COMMANDS) + ["activities"])
+    parser.add_argument("command",
+                        choices=list(COMMANDS) + ["activities", "diagnostics",
+                                                  "attachments"])
     parser.add_argument("bundle", type=Path)
     parser.add_argument("--test-id", help="testIdentifierURL (required for activities)")
+    parser.add_argument("--out", type=Path,
+                        help="where to write exported diagnostics or attachments")
+    parser.add_argument("--all", action="store_true",
+                        help="attachments: export all, not only failures")
     parser.add_argument("--json", action="store_true", help="machine-readable output")
     parser.add_argument("--no-detail", action="store_true",
                         help="failures: skip the per-failure test-details lookup")
+    parser.add_argument("--no-diagnostics", action="store_true",
+                        help="triage: classify from failure text only, do not "
+                             "export and read diagnostics")
     args = parser.parse_args()
 
     try:
@@ -836,6 +1122,17 @@ def main() -> int:
         elif args.command == "failures":
             result = failures(bundle, with_detail=not args.no_detail)
             renderer = _render_failures
+        elif args.command == "diagnostics":
+            result = diagnostics(bundle, args.out)
+            renderer = _render_diagnostics
+        elif args.command == "attachments":
+            if not args.out:
+                parser.error("attachments requires --out")
+            result = attachments(bundle, args.out, only_failures=not args.all)
+            renderer = _render_attachments
+        elif args.command == "triage":
+            result = triage(bundle, read_diagnostics=not args.no_diagnostics)
+            renderer = _render_triage
         else:
             fn, renderer = COMMANDS[args.command]
             result = fn(bundle)

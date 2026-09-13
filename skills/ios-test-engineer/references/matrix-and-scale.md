@@ -4,9 +4,10 @@ Read before running more than one scheme or destination. The commands do not
 change — you run `xcodebuild` N times instead of once. Everything around them
 does.
 
-**Status:** the single-run lanes in this skill are exercised against real
-fixtures. The matrix guidance here is derived from verified tool behaviour but is
-**not fixture-verified end to end**. Say so when reporting matrix results.
+**Status:** `compare_runs.py matrix` and `compare` are exercised against real
+bundles. `merge` and the multi-scheme build flow are derived from verified tool
+behaviour but are **not fixture-verified end to end** — no multi-scheme fixture
+exists yet. Say so when reporting matrix results.
 
 ## First: are ten schemes actually needed?
 
@@ -64,9 +65,13 @@ destinations; do not rebuild per cell.
 N cells produce N bundles and N verdicts. Merge them:
 
 ```sh
-xcrun xcresulttool merge /abs/run/*/Run.xcresult --output-path /abs/run/all.xcresult
+python3 scripts/compare_runs.py matrix /abs/run/*/Run.xcresult
+python3 scripts/compare_runs.py merge  /abs/run/*/Run.xcresult --out /abs/run/all.xcresult
 python3 scripts/test_results.py triage /abs/run/all.xcresult
 ```
+
+`matrix` reports per-cell verdicts and then attributes the failures, which is
+what a raw count cannot do — see below.
 
 Merging is cheap — the bundle format is content-addressed, so identical objects
 across bundles dedupe by hash.
@@ -101,9 +106,10 @@ count and need different responses:
 | 1 test failing on 4 platforms | one bug with platform reach | fix once |
 | 4 tests failing on 1 destination | that device or simulator is unhealthy | fix the cell, do not touch the tests |
 
-Group by `testIdentifierURL` across cells, then by destination. If one
-destination accounts for most failures, suspect the destination first — and
-check its diagnostics before concluding anything about the product.
+`compare_runs.py matrix` does this grouping and names the pattern it found. If
+one destination accounts for most failures, suspect the destination first — and
+check its diagnostics (`test_results.py diagnostics`) before concluding anything
+about the product.
 
 ## Sharding
 

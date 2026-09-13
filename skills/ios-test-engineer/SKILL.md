@@ -60,8 +60,10 @@ Resolve `SKILL_DIR` to this file's directory; paths below are relative to it.
 |---|---|
 | `scripts/test_doctor.py` | Discover schemes, which are **shared**, test plans, destinations, toolchain |
 | `scripts/run_tests.py` | Bounded execution with a watchdog and a reproducibility manifest |
-| `scripts/test_results.py` | Read one bundle: summary, failures, hierarchy, **triage**, activities, metric gateability |
-| `scripts/coverage_report.py` | Region-aware coverage, real gaps, changed-lines delta, hot functions |
+| `scripts/test_results.py` | Read one bundle: `summary` `failures` `tests` **`triage`** `activities` `metrics` `diagnostics` `attachments` `build-results` `availability` |
+| `scripts/coverage_report.py` | `report` `gaps` `changed` `hot` — region-aware, so a gate never fires on an autoclosure |
+| `scripts/compare_runs.py` | `compare` a candidate to a baseline, `merge` bundles, `matrix` attribution across cells |
+| `scripts/test_selftest.py` | Self-test for the classification logic; runs offline, no Xcode needed |
 
 ## The loop
 
@@ -123,9 +125,28 @@ python3 "$SKILL_DIR/scripts/test_results.py" failures /abs/run/fast/Run.xcresult
 would and would not prove, and separately reports **hidden flakes** — tests the
 run calls passed that failed a repetition.
 
+It also exports and reads the diagnostics, so an `infrastructure` verdict rests
+on evidence from `testmanagerd.log` and `scheduling.log` rather than on the
+failure text alone. Confidence drops to `medium` when the text looks like a
+runner failure but the diagnostics do not corroborate it — that combination is
+usually a product failure wearing infrastructure wording.
+
 For an unfamiliar bundle, start with `availability`: a run recorded without
 coverage cannot produce coverage, and knowing that up front avoids an ambiguous
 empty result.
+
+Other layers, when the question calls for them:
+
+```sh
+test_results.py build-results  BUNDLE     # errors, warnings, analyzer warnings
+test_results.py diagnostics    BUNDLE     # runner evidence; --out to keep it
+test_results.py attachments    BUNDLE --out DIR   # failure screenshots and payloads
+test_results.py activities     BUNDLE --test-id URL
+```
+
+`build-results` reports `status: notRequested` when the run did no compilation
+(`test-without-building`). That is not a clean build — it means nothing was
+built, and the script says so rather than reporting zero warnings.
 
 Read [references/result-analysis.md](references/result-analysis.md) for the full
 extraction surface and what each layer is good for.
@@ -155,7 +176,24 @@ count belongs in a gate.
 Read [references/coverage.md](references/coverage.md) before building any
 coverage gate or reporting a percentage to a user.
 
-### 7. Report
+### 7. Compare, or aggregate a matrix
+
+```sh
+python3 "$SKILL_DIR/scripts/compare_runs.py" compare /abs/pr.xcresult --base /abs/main.xcresult
+python3 "$SKILL_DIR/scripts/compare_runs.py" matrix  /abs/run/*/Run.xcresult
+python3 "$SKILL_DIR/scripts/compare_runs.py" merge   /abs/run/*/Run.xcresult --out /abs/run/all.xcresult
+```
+
+`compare` gives `introduced` versus `resolved` across test failures, build
+warnings and analyzer issues — a complete PR gate with no history database.
+Gate on `introduced`; also watch `testsExecuted.removed`, because a suite that
+shrinks looks greener while covering less.
+
+`matrix` answers what a failure count cannot: whether you are looking at
+independent failures, one bug with platform reach, or one unhealthy destination.
+Those need three different responses.
+
+### 8. Report
 
 State, in this order:
 
