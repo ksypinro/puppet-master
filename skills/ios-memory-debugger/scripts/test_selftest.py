@@ -31,6 +31,7 @@ def _load(name: str):
 
 
 util = _load("memgraph_util")
+dom = _load("memgraph_dominator")
 
 
 class ArtifactClassification(unittest.TestCase):
@@ -145,6 +146,92 @@ class LeaksExitSemantics(unittest.TestCase):
              "timedOut": False}, [])
         self.assertEqual(verdict["operation"], "failed")
         self.assertNotEqual(verdict["finding"], "no-leaks-detected")
+
+
+class SizeParsing(unittest.TestCase):
+    """The dominator tree mixes units within one output."""
+
+    def test_all_observed_unit_forms(self):
+        cases = {"978K": 1001472, "64 bytes": 64, "82.5K": 84480,
+                 "163840 bytes": 163840, "1 MB": 1048576, "256 bytes": 256}
+        for text, expected in cases.items():
+            self.assertEqual(dom.parse_size(text), expected, text)
+
+    def test_unparseable_returns_none(self):
+        for bad in ("", "lots", "12 furlongs", "K"):
+            self.assertIsNone(dom.parse_size(bad), bad)
+
+
+class DominatorLineParsing(unittest.TestCase):
+    """Depth lives in the trailing whitespace and must not be stripped.
+
+    `+ ! ` and `+ !   ` are different depths distinguished ONLY by trailing
+    spaces. An rstrip() here silently flattens the ownership chain.
+    """
+
+    SAMPLE = "\n".join([
+        "    1472 (978K) << TOTAL >>",
+        "      8 (176K) VM: __DATA  0x1027a8000-0x1027ac000 [V=16K] rw-/rw-",
+        "      + 4 (160K) retainedCache --> <NSMutableArray 0x1030a19a0> [48]",
+        "      + ! 3 (160K) <NSMutableArray (Storage) 0x1030a10e0> [16]",
+        "      + !   2 (160K) <NSConcreteMutableData 0x1030a19f0> [48]",
+        "      + !     1 (160K) <NSConcreteMutableData (Bytes Storage) 0x8d9800000> [163840]",
+        "      + 1 (32 bytes) <Class.data (class_rw_t) 0x8d9002ba0> [32]",
+    ])
+
+    def _rows(self):
+        rows, stack = [], []
+        for line in self.SAMPLE.splitlines():
+            m = dom.DOM_LINE.match(line)
+            self.assertIsNotNone(m, line)
+            width = len(m.group("indent"))
+            while stack and stack[-1][0] >= width:
+                stack.pop()
+            rows.append({"depth": len(stack), "rest": m.group("rest"),
+                         "size": dom.parse_size(m.group("size")),
+                         "count": int(m.group("count"))})
+            stack.append((width, len(rows) - 1))
+        return rows
+
+    def test_every_line_parses(self):
+        self.assertEqual(len(self._rows()), 7)
+
+    def test_depth_increases_through_the_chain(self):
+        depths = [r["depth"] for r in self._rows()]
+        self.assertEqual(depths[:6], [0, 1, 2, 3, 4, 5],
+                         "trailing spaces carry depth; do not strip them")
+
+    def test_a_sibling_returns_to_the_parent_depth(self):
+        rows = self._rows()
+        self.assertEqual(rows[6]["depth"], rows[2]["depth"])
+
+    def test_retained_size_is_constant_down_a_chain(self):
+        chain = [r["size"] for r in self._rows()[2:6]]
+        self.assertEqual(len(set(chain)), 1,
+                         "every link of an ownership chain retains the same total")
+
+    def test_node_and_reference_extraction(self):
+        rest = "retainedCache --> <NSMutableArray 0x1030a19a0> [48]"
+        node = dom.NODE.search(rest)
+        ref = dom.REF.match(rest)
+        self.assertEqual(node.group("class"), "NSMutableArray")
+        self.assertEqual(node.group("addr"), "0x1030a19a0")
+        self.assertEqual(node.group("bytes"), "48")
+        self.assertEqual(ref.group("ref").strip(), "retainedCache")
+
+    def test_vm_rows_are_recognised(self):
+        self.assertEqual(
+            dom.VM_ROW.match("VM: __DATA  0x1-0x2 [V=16K] rw-/rw-").group("region"),
+            "__DATA")
+
+
+class HistoryModes(unittest.TestCase):
+    def test_peak_mode_requests_full_logging_semantics(self):
+        self.assertIn("-highWaterMark", dom.HISTORY_MODES["peak"])
+
+    def test_every_mode_is_an_argument_list(self):
+        for name, args in dom.HISTORY_MODES.items():
+            self.assertTrue(args and all(a.startswith("-") for a in args), name)
 
 
 class GraphChecks(unittest.TestCase):
