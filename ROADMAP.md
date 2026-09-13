@@ -138,7 +138,9 @@ Two workable answers: generate the blocks from one source of truth, or replace t
 
 ### Shared substrate
 
-Target binding, run-directory conventions, capability probing, and redaction rules are restated as prose in every `SKILL.md`. At four skills that was duplication. At six it is drift with a guaranteed arrival date — `ios-memory-debugger` and `ios-test-engineer` each re-derive artifact validation and process resolution independently. Extract to plugin-level helpers reachable through `${CLAUDE_PLUGIN_ROOT}` once there is a second consumer of each rule.
+Target binding, run-directory conventions, capability probing, and redaction rules are restated as prose in every `SKILL.md`. At four skills that was duplication. At six it is drift with a guaranteed arrival date.
+
+The *code* half of this is done. `ios-memory-debugger` keeps its shared behaviour in `memgraph_util.py`, and `ios-test-engineer` now does the same in `xcresult_util.py` — three copies of bundle validation and five separate `ToolError` classes collapsed to one each, with a self-test that fails if a copy creeps back. What remains is the *prose* half: the same invariants restated in six `SKILL.md` files, which no import can deduplicate and which a shared `references/` file would have to serve without breaking standalone skill installs. Extract to plugin-level helpers reachable through `${CLAUDE_PLUGIN_ROOT}` once there is a second consumer of each rule.
 
 ### Verification
 

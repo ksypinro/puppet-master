@@ -34,14 +34,15 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import shutil
-import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-SCHEMA_TESTED = "0.4.0"
-DEFAULT_TIMEOUT = 180
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from xcresult_util import (  # noqa: E402
+    DEFAULT_TIMEOUT, SCHEMA_TESTED, ToolError, resolve_bundle, run,
+    xcresulttool, xcresulttool_json,
+)
 
 # A source location pointing here is compiler-synthesised, not real source.
 SYNTHETIC_PATH = "/<compiler-generated>"
@@ -56,51 +57,13 @@ RSD_MARGINAL = 15.0
 # tool plumbing
 # --------------------------------------------------------------------------
 
-class ToolError(RuntimeError):
-    pass
-
-
-def xcresulttool(args: List[str], timeout: int = DEFAULT_TIMEOUT) -> str:
-    if not shutil.which("xcrun"):
-        raise ToolError("xcrun not found. These skills require macOS with full Xcode.")
-    argv = ["xcrun", "xcresulttool"] + args
-    try:
-        proc = subprocess.run(argv, capture_output=True, text=True,
-                              timeout=timeout, check=False)
-    except subprocess.TimeoutExpired:
-        raise ToolError(f"xcresulttool timed out after {timeout}s: {' '.join(args[:3])}")
-    if proc.returncode != 0:
-        raise ToolError(f"xcresulttool failed ({proc.returncode}): "
-                        f"{(proc.stderr or proc.stdout).strip()[:400]}")
-    return proc.stdout
-
-
-def get_json(bundle: Path, *parts: str, timeout: int = DEFAULT_TIMEOUT) -> Any:
-    out = xcresulttool(list(parts) + ["--path", str(bundle), "--format", "json"],
-                       timeout=timeout)
-    try:
-        return json.loads(out)
-    except json.JSONDecodeError as exc:
-        raise ToolError(f"xcresulttool returned invalid JSON for "
-                        f"{' '.join(parts)}: {exc}")
-
-
-def resolve_bundle(path: Path) -> Path:
-    bundle = path.expanduser().resolve()
-    if not bundle.exists():
-        raise ToolError(f"no such bundle: {bundle}")
-    if not (bundle / "Info.plist").exists():
-        raise ToolError(f"not an .xcresult bundle (no Info.plist): {bundle}")
-    return bundle
-
-
 # --------------------------------------------------------------------------
 # availability -- always the first question about an unfamiliar bundle
 # --------------------------------------------------------------------------
 
 def availability(bundle: Path) -> Dict[str, Any]:
     try:
-        data = get_json(bundle, "get", "content-availability", timeout=60)
+        data = xcresulttool_json(bundle, "get", "content-availability", timeout=60)
     except ToolError as exc:
         return {"error": str(exc)}
     return {
@@ -116,7 +79,7 @@ def availability(bundle: Path) -> Dict[str, Any]:
 # --------------------------------------------------------------------------
 
 def summary(bundle: Path) -> Dict[str, Any]:
-    raw = get_json(bundle, "get", "test-results", "summary")
+    raw = xcresulttool_json(bundle, "get", "test-results", "summary")
 
     devices = []
     run_total = 0
@@ -197,7 +160,7 @@ def _source_location(node: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 
 def failures(bundle: Path, with_detail: bool = True) -> Dict[str, Any]:
-    raw = get_json(bundle, "get", "test-results", "summary")
+    raw = xcresulttool_json(bundle, "get", "test-results", "summary")
     insights = raw.get("topInsights", [])
 
     items: List[Dict[str, Any]] = []
@@ -229,7 +192,7 @@ def failures(bundle: Path, with_detail: bool = True) -> Dict[str, Any]:
 
 def _failure_detail(bundle: Path, test_url: str) -> Dict[str, Any]:
     try:
-        raw = get_json(bundle, "get", "test-results", "test-details",
+        raw = xcresulttool_json(bundle, "get", "test-results", "test-details",
                        "--test-id", test_url)
     except ToolError as exc:
         return {"detailError": str(exc)}
@@ -277,7 +240,7 @@ def _framework_of(name: str) -> str:
 
 
 def tests(bundle: Path) -> Dict[str, Any]:
-    raw = get_json(bundle, "get", "test-results", "tests")
+    raw = xcresulttool_json(bundle, "get", "test-results", "tests")
 
     cases: List[Dict[str, Any]] = []
     bundles: Dict[str, str] = {}
@@ -410,7 +373,7 @@ def build_results(bundle: Path) -> Dict[str, Any]:
     reported as such rather than as a clean build.
     """
     try:
-        raw = get_json(bundle, "get", "build-results")
+        raw = xcresulttool_json(bundle, "get", "build-results")
     except ToolError as exc:
         return {"error": str(exc)}
 
@@ -733,7 +696,7 @@ def triage(bundle: Path, read_diagnostics: bool = True) -> Dict[str, Any]:
 # --------------------------------------------------------------------------
 
 def activities(bundle: Path, test_id: str) -> Dict[str, Any]:
-    raw = get_json(bundle, "get", "test-results", "activities", "--test-id", test_id)
+    raw = xcresulttool_json(bundle, "get", "test-results", "activities", "--test-id", test_id)
 
     steps: List[Dict[str, Any]] = []
 
