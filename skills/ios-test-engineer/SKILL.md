@@ -63,6 +63,7 @@ Resolve `SKILL_DIR` to this file's directory; paths below are relative to it.
 | `scripts/test_results.py` | Read one bundle: `summary` `failures` `tests` **`triage`** `activities` `metrics` `diagnostics` `attachments` `build-results` `availability` |
 | `scripts/coverage_report.py` | `report` `gaps` `changed` `hot` — region-aware, so a gate never fires on an autoclosure |
 | `scripts/compare_runs.py` | `compare` a candidate to a baseline, `merge` bundles, `matrix` attribution across cells |
+| `scripts/xctest_selection.py` | Prove an `-only-testing` or `--filter` selection matches real tests **before** running |
 | `scripts/test_selftest.py` | Self-test for the classification logic; runs offline, no Xcode needed |
 
 ## The loop
@@ -89,8 +90,21 @@ reason "all tests pass" means less than it appears to.
 - **Repeated or matrix runs:** `run_tests.py build` once, then
   `run_tests.py test --xctestrun …` per destination. Building once avoids
   recompiling shared dependencies per cell.
-- **Narrowing:** `--only Target/Class/method`, `--skip …`. Prove a filter
-  matches before a measured run; a filter that matches nothing exits clean.
+- **Narrowing:** `--only Target/Class/method`, `--skip …`. **Verify the
+  selection first** — a filter that matches nothing exits 0 and is
+  indistinguishable from a pass:
+
+  ```sh
+  python3 "$SKILL_DIR/scripts/xctest_selection.py" xcodebuild \
+      --xctestrun /abs/App_Fast_….xctestrun --only-testing AppTests/SearchTests
+  python3 "$SKILL_DIR/scripts/xctest_selection.py" swiftpm \
+      --package-path /abs/package --filter 'SearchTests'
+  ```
+
+  Exit 3 means a selector matched nothing. This catches the Swift Testing trap
+  where a `@Suite("…")` display name is used as a filter: `--filter` matches
+  the *symbol* identifiers `swift test list` prints, so the display name runs
+  nothing and reports success.
 - **Coverage must be decided up front.** It cannot be added to a bundle
   afterwards. Pass `--coverage` if coverage might be asked for.
 

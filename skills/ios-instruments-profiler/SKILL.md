@@ -55,7 +55,6 @@ Use these evidence modes:
 | `scripts/xctrace_export.py` | TOC inventory (tables and track details), TOC-checked table/detail export, HAR, preview |
 | `scripts/xctrace_reduce.py` | Typed, bounded summaries of exported tables and track details |
 | `scripts/xcresult_metrics.py` | XCTest metric statistics and baseline-versus-candidate comparison |
-| `scripts/xctest_selection.py` | Prove a test filter or `-only-testing` selection matches tests before a measured run |
 
 ## Closed experiment loop
 
@@ -82,15 +81,17 @@ Do not start a multi-run experiment until one smoke trace finalizes, exports a T
 ### 3. Establish deterministic state
 
 - Reuse an explicit target identifier throughout the run set.
-- Prove the test selection before measuring with it. A wrong `swift test --filter` or `-only-testing` runs nothing and still exits 0, which looks like a passing run with no measurements:
+- Prove the test selection before measuring with it. A wrong `swift test --filter` or `-only-testing` runs nothing and still exits 0, which looks like a passing run with no measurements. The `ios-test-engineer` skill owns this check; resolve its directory rather than assuming a relative path, since the two skills are siblings only when installed together:
 
 ```sh
-python3 scripts/xctest_selection.py swiftpm --package-path '/absolute/package' --filter 'SearchTests'
-python3 scripts/xctest_selection.py xcodebuild --xctestrun '/absolute/App_Plan_….xctestrun' \
+SELECTION="$(dirname "$SKILL_DIR")/ios-test-engineer/scripts/xctest_selection.py"
+
+python3 "$SELECTION" swiftpm --package-path '/absolute/package' --filter 'SearchTests'
+python3 "$SELECTION" xcodebuild --xctestrun '/absolute/App_Plan_….xctestrun' \
   --destination 'platform=iOS Simulator,id=DEVICE_UDID' --only-testing AppTests/SearchTests
 ```
 
-  It exits 3 when a selector matches nothing, and names the identifier you probably meant.
+  It exits 3 when a selector matches nothing, and names the identifier you probably meant. If `ios-test-engineer` is not installed, enumerate manually with `swift test list` or `xcodebuild -enumerate-tests` and confirm the selector appears there before spending a measured run on it.
 - Stabilize reproducible UI state with XCTest or an available semantic UI driver. Use the existing `ios-simulator-driver` skill when available for Simulator interaction; otherwise use a deterministic XCUIAutomation, AXe, idb, Appium/WebDriverAgent, or equivalent workflow.
 - The LLM may plan the fixed action script and recover before a run. It must not improvise during a measured iteration. Mark any run that required recovery as non-comparable unless the experiment contract explicitly allows it.
 - For post-launch work, launch and settle the app first, start an attach-based trace, wait for recording-start evidence, run the fixed actions, verify the semantic endpoint, and stop the capture.

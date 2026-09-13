@@ -19,7 +19,8 @@ Do not compare runs when a field that affects the metric changed unless the expe
 
 Use `scripts/xctrace_doctor.py` first. It reports the `xctrace` build and its known defects, and fails when one blocks the target (Xcode 27 beta 27A5194q cannot record on any Simulator). Add `--smoke-record` with the capture mode you will use (`--smoke-attach PROCESS`, `--smoke-launch BUNDLE_ID_OR_PATH`, or neither for all processes) to prove each template and instrument set records on this target; a failing set is re-recorded one instrument at a time so the report names the one Xcode rejects. Also confirm:
 
-- the test selection matches tests, checked with `scripts/xctest_selection.py`; `swift test --filter` matches the identifiers `swift test list` prints (symbols such as `PackageTests.SearchTests/testQuery`), not the display names in `@Suite("…")` or `@Test("…")`, so a filter written from a display name runs nothing and exits 0;
+- the test selection matches tests, checked with `ios-test-engineer`'s
+  `scripts/xctest_selection.py` (selection is a test concern; that skill owns it); `swift test --filter` matches the identifiers `swift test list` prints (symbols such as `PackageTests.SearchTests/testQuery`), not the display names in `@Suite("…")` or `@Test("…")`, so a filter written from a display name runs nothing and exits 0;
 - the app is installed and launchable on the exact target;
 - a physical device is trusted, unlocked, in Developer Mode where needed, prepared by Xcode, and visible to `xctrace list devices`;
 - privacy prompts have been handled before unattended `--no-prompt` recording;

@@ -26,7 +26,6 @@ exporter = load_module("xctrace_export", ROOT / "scripts" / "xctrace_export.py")
 metrics = load_module("xcresult_metrics", ROOT / "scripts" / "xcresult_metrics.py")
 recorder = load_module("xctrace_record", ROOT / "scripts" / "xctrace_record.py")
 reducer = load_module("xctrace_reduce", ROOT / "scripts" / "xctrace_reduce.py")
-selection = load_module("xctest_selection", ROOT / "scripts" / "xctest_selection.py")
 
 # Shapes below are trimmed from real Xcode 27 beta exports: ids are defined once and later rows use refs,
 # a thread nests the process that the next column refers to, and stacks are leaf-first.
@@ -167,34 +166,6 @@ class HelperTests(unittest.TestCase):
         )
         self.assertEqual(recorder.build_command(namespace)[-5:],
                          ["--", "/usr/bin/xctest", "-XCTest", "Suite/test", "/tmp/T.xctest"])
-
-    def test_test_selection_matches_the_way_each_tool_does(self):
-        listing = ("Building for debugging...\nBuild complete! (0.33 secs)\n"
-                   "CoreKitTests.SearchTests/testQuery\nCoreKitTests.HeavyWorkloadTests/linearSearchIsSlow()\n")
-        identifiers = selection.swiftpm_identifiers(listing)
-        self.assertEqual(identifiers, ["CoreKitTests.SearchTests/testQuery",
-                                       "CoreKitTests.HeavyWorkloadTests/linearSearchIsSlow()"])
-        # swift test --filter is a regex over those identifiers, so a @Suite display name matches nothing.
-        self.assertEqual(selection.regex_matches(identifiers, "HeavyWorkloadTests"), [identifiers[1]])
-        self.assertEqual(selection.regex_matches(identifiers, "HeavyDemo"), [])
-        names = selection.display_names('@Suite("HeavyDemo")\nstruct HeavyWorkloadTests {\n'
-                                        '    @Test("Slow path")\n    func linearSearchIsSlow() {}\n}\n')
-        self.assertEqual((names.get("HeavyDemo"), names.get("Slow path")),
-                         ("HeavyWorkloadTests", "linearSearchIsSlow"))
-        self.assertIn("HeavyWorkloadTests", selection.suggest("HeavyDemo", identifiers, names))
-
-        payload = {"values": [{"kind": "plan", "name": "Fast", "children": [
-            {"kind": "target", "name": "AppTests", "children": [
-                {"kind": "class", "name": "SearchTests", "children": [{"kind": "test", "name": "testQuery()"}]}]}]}]}
-        self.assertEqual(selection.enumerated_identifiers(payload), ["AppTests/SearchTests/testQuery()"])
-        self.assertTrue(selection.selector_matches("AppTests/SearchTests/testQuery()", "AppTests/SearchTests"))
-        self.assertTrue(selection.selector_matches("AppTests/SearchTests/testQuery()", "AppTests"))
-        self.assertFalse(selection.selector_matches("AppTests/SearchTestsExtra/testQuery()", "AppTests/SearchTests"))
-
-        verdict = selection.evaluate(identifiers, [("filter", "HeavyDemo")], [], selection.regex_matches, names)
-        self.assertEqual((verdict["unmatched_selectors"], verdict["selected"]), (1, 0))
-        good = selection.evaluate(identifiers, [("filter", "SearchTests")], [], selection.regex_matches, names)
-        self.assertEqual((good["unmatched_selectors"], good["selected"]), (0, 1))
 
     def test_completion_grace_follows_observed_save_times(self):
         # System Trace needed about 315 s and File Activity about 180 s to save 4 s of recording.

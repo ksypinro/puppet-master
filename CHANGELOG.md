@@ -31,6 +31,14 @@ For skills, versioning is interpreted as:
   on the failure text alone. Confidence drops to `medium` when the text looks
   like a runner failure but the diagnostics do not corroborate it.
 - `test_results.py build-results` and `attachments`.
+
+### Changed
+- `xctest_selection.py` moved from `ios-instruments-profiler` to
+  `ios-test-engineer`. Proving that an `-only-testing` or `--filter` selection
+  matches real tests is a test concern; the profiler only needed it because a
+  wrong filter wastes a *measured* run. Its tests moved with it, and the
+  profiler now resolves the script through `ios-test-engineer` with a documented
+  fallback for a standalone install.
 - `test_results.py` self-test (`test_selftest.py`), which enforces that the
   diagnostic signal patterns produce **zero** matches on passing runs. A healthy
   `testmanagerd.log` contains `(result:error)`, `TESTMANAGERD_SIM_SOCK` and

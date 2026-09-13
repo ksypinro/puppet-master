@@ -76,7 +76,23 @@ Xcode.
 --skip  Target/Class/method       repeatable
 ```
 
-Enumerate without running to prove a filter matches:
+A filter that matches nothing **exits 0**. Without verification you cannot
+distinguish "all selected tests passed" from "no tests were selected" — so
+check it before the run:
+
+```sh
+python3 scripts/xctest_selection.py xcodebuild \
+    --xctestrun /abs/App_Fast_….xctestrun \
+    --only-testing AppTests/SearchTests --only-testing AppTests/CheckoutTests
+
+python3 scripts/xctest_selection.py swiftpm \
+    --package-path /abs/package --filter 'SearchTests'
+```
+
+Exit 0 means every selector matched at least one test; **exit 3** means one
+matched nothing, and it names the closest real identifiers.
+
+Underneath it uses the native enumeration, which you can also drive directly:
 
 ```sh
 xcodebuild -enumerate-tests -test-enumeration-format json \
@@ -84,8 +100,18 @@ xcodebuild -enumerate-tests -test-enumeration-format json \
     -test-enumeration-output-path /abs/run/enumerated.json …
 ```
 
-A filter that matches nothing **exits clean**. Without enumeration you cannot
-distinguish "all selected tests passed" from "no tests were selected".
+### Computing a selection is a different problem
+
+Verifying a selection is safe. **Computing** one from a changeset is not, and
+this skill deliberately does not: it needs the Xcode target dependency graph
+rather than any run's evidence, and an incomplete graph skips tests that should
+have run while the suite still reports green. Unlike a hidden flake, that
+failure leaves no evidence behind — the tests simply never ran.
+
+Use [XcodeSelectiveTesting](https://github.com/mikeger/XcodeSelectiveTesting),
+which builds the graph from XcodeProj and `swift package dump-package` and
+rewrites schemes and test plans. Then verify what it produced with
+`xctest_selection.py` before running it.
 
 ## SwiftPM
 

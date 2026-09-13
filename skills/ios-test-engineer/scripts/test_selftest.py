@@ -39,6 +39,7 @@ def _load(name: str):
 
 test_results = _load("test_results")
 coverage_report = _load("coverage_report")
+xctest_selection = _load("xctest_selection")
 
 
 # Real xcodebuild and testmanagerd wording for genuine runner failures.
@@ -182,6 +183,73 @@ class PathNormalisation(unittest.TestCase):
         self.assertEqual(coverage_report._common_root(["/a/b", "/c/d"]), "")
         self.assertEqual(
             coverage_report._common_root(["/a/b/c.swift", "/a/b/d.swift"]), "/a/b")
+
+
+class SelectionVerification(unittest.TestCase):
+    """A selection that matches nothing exits 0 and looks like a pass.
+
+    `swift test --filter` is a regex over the SYMBOL identifiers that
+    `swift test list` prints, not over the @Suite/@Test display names written
+    in the source. A filter copied from a display name silently runs nothing.
+    Moved here from ios-instruments-profiler, which needed it to avoid wasting
+    a measured run; selection is a test concern, so it lives with the tests.
+    """
+
+    LISTING = ("Building for debugging...\nBuild complete! (0.33 secs)\n"
+               "CoreKitTests.SearchTests/testQuery\n"
+               "CoreKitTests.HeavyWorkloadTests/linearSearchIsSlow()\n")
+
+    def test_swiftpm_identifiers_skip_build_noise(self):
+        ids = xctest_selection.swiftpm_identifiers(self.LISTING)
+        self.assertEqual(ids, ["CoreKitTests.SearchTests/testQuery",
+                               "CoreKitTests.HeavyWorkloadTests/linearSearchIsSlow()"])
+
+    def test_filter_matches_symbols_not_display_names(self):
+        ids = xctest_selection.swiftpm_identifiers(self.LISTING)
+        self.assertEqual(xctest_selection.regex_matches(ids, "HeavyWorkloadTests"),
+                         [ids[1]])
+        # The @Suite display name matches NOTHING -- and exits 0 in real use.
+        self.assertEqual(xctest_selection.regex_matches(ids, "HeavyDemo"), [])
+
+    def test_display_names_are_mapped_back_to_symbols(self):
+        names = xctest_selection.display_names(
+            '@Suite("HeavyDemo")\nstruct HeavyWorkloadTests {\n'
+            '    @Test("Slow path")\n    func linearSearchIsSlow() {}\n}\n')
+        self.assertEqual(names.get("HeavyDemo"), "HeavyWorkloadTests")
+        self.assertEqual(names.get("Slow path"), "linearSearchIsSlow")
+
+    def test_a_display_name_filter_suggests_the_real_symbol(self):
+        ids = xctest_selection.swiftpm_identifiers(self.LISTING)
+        names = xctest_selection.display_names(
+            '@Suite("HeavyDemo")\nstruct HeavyWorkloadTests {}\n')
+        self.assertIn("HeavyWorkloadTests",
+                      xctest_selection.suggest("HeavyDemo", ids, names))
+
+    def test_xcodebuild_enumeration_is_flattened(self):
+        payload = {"values": [{"kind": "plan", "name": "Fast", "children": [
+            {"kind": "target", "name": "AppTests", "children": [
+                {"kind": "class", "name": "SearchTests",
+                 "children": [{"kind": "test", "name": "testQuery()"}]}]}]}]}
+        self.assertEqual(xctest_selection.enumerated_identifiers(payload),
+                         ["AppTests/SearchTests/testQuery()"])
+
+    def test_only_testing_matches_on_path_boundaries(self):
+        m = xctest_selection.selector_matches
+        self.assertTrue(m("AppTests/SearchTests/testQuery()", "AppTests/SearchTests"))
+        self.assertTrue(m("AppTests/SearchTests/testQuery()", "AppTests"))
+        # A prefix that is not a path boundary must not match.
+        self.assertFalse(m("AppTests/SearchTestsExtra/testQuery()",
+                           "AppTests/SearchTests"))
+
+    def test_evaluate_reports_an_empty_selection(self):
+        ids = xctest_selection.swiftpm_identifiers(self.LISTING)
+        names = xctest_selection.display_names('@Suite("HeavyDemo")\nstruct HeavyWorkloadTests {}\n')
+        bad = xctest_selection.evaluate(ids, [("filter", "HeavyDemo")], [],
+                                        xctest_selection.regex_matches, names)
+        self.assertEqual((bad["unmatched_selectors"], bad["selected"]), (1, 0))
+        good = xctest_selection.evaluate(ids, [("filter", "SearchTests")], [],
+                                         xctest_selection.regex_matches, names)
+        self.assertEqual((good["unmatched_selectors"], good["selected"]), (0, 1))
 
 
 class DurationParsing(unittest.TestCase):
