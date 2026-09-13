@@ -147,6 +147,43 @@ class ArchiveParsing(unittest.TestCase):
         self.assertEqual(hits.get(68), "2201")
 
 
+class PathNormalisation(unittest.TestCase):
+    """Bundles built under different checkout roots must still compare.
+
+    Without this, CI-versus-laptop coverage reports every file as
+    removed+added and fully covered code reads as 0%.
+    """
+
+    CI = {"/build/ws/App/Sources/NoteIndex.swift": {},
+          "/build/ws/App/Sources/ContentView.swift": {}}
+    MAC = {"/Users/sam/dev/App/Sources/NoteIndex.swift": {},
+           "/Users/sam/dev/App/Sources/ContentView.swift": {}}
+
+    def test_identical_roots_need_no_work(self):
+        a, b, _, strategy = coverage_report._normalise_keys(
+            dict(self.CI), dict(self.CI), None)
+        self.assertEqual(strategy, "none-needed")
+        self.assertEqual(set(a), set(b))
+
+    def test_different_roots_are_reconciled(self):
+        a, b, _, strategy = coverage_report._normalise_keys(
+            dict(self.CI), dict(self.MAC), None)
+        self.assertEqual(strategy, "common-root")
+        self.assertEqual(len(set(a) & set(b)), 2,
+                         "files under different roots should still match")
+
+    def test_explicit_prefix_is_honoured(self):
+        a, b, _, strategy = coverage_report._normalise_keys(
+            dict(self.CI), dict(self.CI), "/build/ws")
+        self.assertEqual(strategy, "explicit")
+        self.assertIn("App/Sources/NoteIndex.swift", a)
+
+    def test_common_root_of_disjoint_paths_is_empty(self):
+        self.assertEqual(coverage_report._common_root(["/a/b", "/c/d"]), "")
+        self.assertEqual(
+            coverage_report._common_root(["/a/b/c.swift", "/a/b/d.swift"]), "/a/b")
+
+
 class DurationParsing(unittest.TestCase):
     def test_units(self):
         self.assertAlmostEqual(test_results._parse_duration("0.0016s"), 0.0016)

@@ -284,11 +284,64 @@ def _read_source(path: str) -> Optional[List[str]]:
 # changed -- coverage delta
 # --------------------------------------------------------------------------
 
-def changed(bundle: Path, base: Path, include_tests: bool = False) -> Dict[str, Any]:
+def _common_root(paths: List[str]) -> str:
+    """Longest shared directory prefix of a set of absolute paths."""
+    if not paths:
+        return ""
+    parts = [p.split("/") for p in paths]
+    shared: List[str] = []
+    for segs in zip(*parts):
+        if len(set(segs)) != 1:
+            break
+        shared.append(segs[0])
+    return "/".join(shared)
+
+
+def _normalise_keys(current: Dict[str, Any], baseline: Dict[str, Any],
+                    strip: Optional[str]) -> tuple:
+    """Make two bundles' file paths comparable across checkout roots.
+
+    The same source built on CI and on a laptop has different absolute paths,
+    so an exact-path diff reports every file as removed+added and fully covered
+    code shows as 0%. Strip each side's own common root and compare what is
+    left, which is the repository-relative path.
+    """
+    if strip:
+        norm = lambda p: p[len(strip):].lstrip("/") if p.startswith(strip) else p
+        return ({norm(k): v for k, v in current.items()},
+                {norm(k): v for k, v in baseline.items()}, strip, "explicit")
+
+    if set(current) & set(baseline):
+        return current, baseline, None, "none-needed"
+
+    cur_root, base_root = _common_root(list(current)), _common_root(list(baseline))
+    if not cur_root or not base_root:
+        return current, baseline, None, "not-possible"
+
+    rel_cur = {k[len(cur_root):].lstrip("/"): v for k, v in current.items()}
+    rel_base = {k[len(base_root):].lstrip("/"): v for k, v in baseline.items()}
+    if set(rel_cur) & set(rel_base):
+        return rel_cur, rel_base, f"{cur_root} | {base_root}", "common-root"
+
+    # Last resort: match on filename alone. Ambiguous when a name repeats, so
+    # only used when it is unambiguous on both sides.
+    names_cur = [k.rsplit("/", 1)[-1] for k in current]
+    names_base = [k.rsplit("/", 1)[-1] for k in baseline]
+    if len(set(names_cur)) == len(names_cur) and len(set(names_base)) == len(names_base):
+        return ({k.rsplit("/", 1)[-1]: v for k, v in current.items()},
+                {k.rsplit("/", 1)[-1]: v for k, v in baseline.items()},
+                None, "basename")
+    return current, baseline, None, "failed"
+
+
+def changed(bundle: Path, base: Path, include_tests: bool = False,
+            strip_prefix: Optional[str] = None) -> Dict[str, Any]:
     cur = {f["path"]: f for t in report(bundle, include_tests)["targets"]
            for f in t["files"]}
     old = {f["path"]: f for t in report(base, include_tests)["targets"]
            for f in t["files"]}
+
+    cur, old, stripped, strategy = _normalise_keys(cur, old, strip_prefix)
 
     rows = []
     for path in sorted(set(cur) | set(old)):
@@ -310,16 +363,42 @@ def changed(bundle: Path, base: Path, include_tests: bool = False) -> Dict[str, 
         })
 
     regressed = [r for r in rows if r["state"] == "regressed"]
+    added = [r for r in rows if r["state"] == "added"]
+    removed = [r for r in rows if r["state"] == "removed"]
+
+    notes = {
+        "none-needed": "Paths matched directly; no normalisation was needed.",
+        "explicit": f"Stripped the prefix you supplied: {stripped}",
+        "common-root": (f"Paths did not match, so each side's common root was "
+                        f"stripped and the repository-relative paths compared "
+                        f"({stripped})."),
+        "basename": ("Paths did not match and roots did not help, so files were "
+                     "matched on filename alone. Unambiguous here, but verify "
+                     "before trusting it."),
+        "not-possible": "Paths did not match and could not be normalised.",
+        "failed": ("Paths did not match and could not be normalised safely "
+                   "(duplicate filenames). Every file will read as "
+                   "removed+added -- pass --strip-prefix."),
+    }
+
+    warnings = []
+    if strategy in ("not-possible", "failed") and added and removed:
+        warnings.append(
+            "Every file shows as removed+added, which almost always means the "
+            "two bundles were built under different checkout roots rather than "
+            "that the files really changed. Do not report this as a coverage "
+            "regression.")
+
     return {
         "files": rows,
         "regressedCount": len(regressed),
         "regressed": regressed,
         "improved": [r for r in rows if r["state"] == "improved"],
-        "added": [r for r in rows if r["state"] == "added"],
-        "removed": [r for r in rows if r["state"] == "removed"],
-        "note": ("Path equivalence matters: the same source under a different "
-                 "checkout root will show as removed+added rather than "
-                 "unchanged. Normalise paths before trusting this on CI."),
+        "added": added,
+        "removed": removed,
+        "pathNormalisation": {"strategy": strategy, "stripped": stripped},
+        "warnings": warnings,
+        "note": notes[strategy],
     }
 
 
@@ -422,7 +501,11 @@ def _render_changed(d: Dict[str, Any]) -> None:
         print(f"  {r['state']:10s} {r['file'][:32]:34s} {base} → {cur}  {delta}")
     print(f"\n  regressed {d['regressedCount']}   improved {len(d['improved'])}   "
           f"added {len(d['added'])}   removed {len(d['removed'])}")
-    print(f"\n  {d['note']}\n")
+    print(f"\n  path matching: {d['pathNormalisation']['strategy']}")
+    print(f"  {d['note']}")
+    for w in d["warnings"]:
+        print(f"\n  ! {w}")
+    print()
 
 
 def _render_hot(d: Dict[str, Any]) -> None:
@@ -447,6 +530,10 @@ def main() -> int:
     p.add_argument("--limit", type=int, default=20, help="`hot` result count")
     p.add_argument("--include-tests", action="store_true",
                    help="keep test bundles in the numbers")
+    p.add_argument("--strip-prefix", metavar="PATH",
+                   help="`changed`: strip this path prefix from both bundles "
+                        "before comparing, for bundles built under different "
+                        "checkout roots (auto-detected when omitted)")
     p.add_argument("--fail-under", type=float, metavar="PCT",
                    help="exit 1 if product coverage is below this percentage")
     p.add_argument("--json", action="store_true")
@@ -466,7 +553,8 @@ def main() -> int:
         else:
             if not args.base:
                 p.error("changed requires --base")
-            result = changed(bundle, resolve_bundle(args.base), args.include_tests)
+            result = changed(bundle, resolve_bundle(args.base),
+                             args.include_tests, args.strip_prefix)
             render = _render_changed
     except ToolError as exc:
         print(f"error: {exc}", file=sys.stderr)
