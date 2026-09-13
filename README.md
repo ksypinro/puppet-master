@@ -1,6 +1,6 @@
 # Puppet Master
 
-**Four composable [Agent Skills](https://agentskills.io) that let a coding agent drive, inspect, debug, and profile iOS apps — with evidence instead of guesses.**
+**Five composable [Agent Skills](https://agentskills.io) that let a coding agent drive, test, inspect, debug, and profile iOS apps — with evidence instead of guesses.**
 
 [![CI](https://github.com/ksypinro/puppet-master/actions/workflows/ci.yml/badge.svg)](https://github.com/ksypinro/puppet-master/actions/workflows/ci.yml)
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-spec%20compliant-6b46c1)](https://agentskills.io/specification)
@@ -28,17 +28,21 @@ That detects every coding agent on your machine and installs into each. It downl
 | **[ios-view-hierarchy-debugger](skills/ios-view-hierarchy-debugger)** | "Why does it *look* wrong?" | Native UIKit tree, geometry, constraints, layer state |
 | **[lldb-code-state-debugger](skills/lldb-code-state-debugger)** | "Why is the *value* wrong?" | Breakpoints, stopped stacks, stored variables, watchpoints |
 | **[ios-instruments-profiler](skills/ios-instruments-profiler)** | "Why is it *slow*?" | xctrace recordings, XCTest metrics, bounded reductions |
+| **[ios-test-engineer](skills/ios-test-engineer)** | "Did it pass, and is that failure real?" | Result bundles, flake classification, region-aware coverage |
 
-They are one toolkit, not four independent tools. `ios-simulator-driver` is the actuator; the other three call into it to reach a screen and reproduce a scenario.
+They are one toolkit, not five independent tools. `ios-simulator-driver` is the actuator; the diagnostic skills call into it to reach a screen and reproduce a scenario.
 
 ```
-                    ios-simulator-driver
-                   (reach the screen, act, verify)
-                             │
-         ┌───────────────────┼───────────────────┐
-         ▼                   ▼                   ▼
-  view-hierarchy       lldb-code-state      instruments
-  wrong pixels         wrong values         wrong timing
+   ios-test-engineer            ios-simulator-driver
+   (run the suite, read           (reach the screen,
+    the verdict honestly)          act, verify)
+            │                            │
+            └──────────┬─────────────────┘
+                       │
+     ┌─────────────────┼─────────────────┐
+     ▼                 ▼                 ▼
+view-hierarchy   lldb-code-state    instruments
+wrong pixels      wrong values      wrong timing
 ```
 
 ### Which one do I need?
@@ -51,6 +55,7 @@ You do not choose — your agent does, from the `description` in each skill. But
 | Misplaced, clipped, overlapping, mis-styled, untappable view | `ios-view-hierarchy-debugger` |
 | Wrong text, wrong number, wrong branch, stale model state | `lldb-code-state-debugger` |
 | Slow launch, jank, hitches, leaks, memory growth, battery | `ios-instruments-profiler` |
+| Run the suite, read a result bundle, is this failure real, coverage | `ios-test-engineer` |
 
 ## What makes these different
 
@@ -113,7 +118,8 @@ python3 ~/.codex/skills/.system/skill-installer/scripts/install-skill-from-githu
   --path skills/ios-simulator-driver \
   --path skills/ios-view-hierarchy-debugger \
   --path skills/lldb-code-state-debugger \
-  --path skills/ios-instruments-profiler
+  --path skills/ios-instruments-profiler \
+  --path skills/ios-test-engineer
 ```
 
 Or use this repo's installer, which writes to `~/.agents/skills/`:

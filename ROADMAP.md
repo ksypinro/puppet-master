@@ -6,9 +6,9 @@ The baseline is the *iOS Developer Command-Line Tools — Deep Technical Analysi
 
 This is a statement of direction, not a schedule. Nothing here has a date.
 
-## Where v1.0.0 stands
+## Where the toolkit stands
 
-Measured against the fifteen requirements in the report's capability map: **eight fully covered, three partial, four absent.**
+Measured against the fifteen requirements in the report's capability map: **ten fully covered, one partial, four absent** as of v1.1.0, when `ios-test-engineer` closed the two test rows.
 
 | Requirement | Status | Skill |
 |---|---|---|
@@ -20,8 +20,8 @@ Measured against the fifteen requirements in the report's capability map: **eigh
 | Call stacks and variables | ✅ | `lldb-code-state-debugger` |
 | Instruments recording | ✅ | `ios-instruments-profiler` |
 | Instruments analysis | ✅ | `ios-instruments-profiler` |
-| Unit and UI tests | ◐ | `build-for-testing` / `test-without-building` only as a vehicle for measurement |
-| Structured test analysis | ◐ | `xcresulttool get test-results metrics` only; no pass/fail, activities, attachments, or `xccov` |
+| Unit and UI tests | ✅ | `ios-test-engineer` |
+| Structured test analysis | ✅ | `ios-test-engineer` |
 | Memory graph | ◐ | Allocations and Leaks only; no reference graph |
 | Build for Simulator | ❌ | — |
 | Build for physical iOS | ❌ | — |
@@ -35,12 +35,12 @@ One result runs the other way. The report concluded that the full render tree "r
 ```
   PRODUCE          DEPLOY           EXERCISE         DIAGNOSE          MEASURE
   build / sign     Simulator ✅      UI driving ✅     view tree ✅       Instruments ✅
-      ❌           device ❌         tests ◐          LLDB ✅
+      ❌           device ❌         tests ✅          LLDB ✅
                                                      memory ◐
                                                      crash ❌
 ```
 
-The four skills own **"why is this wrong"** completely and **"how do I produce and ship this"** not at all. Each of them opens by assuming a built, installed application already exists — which held while they were driven by hand against apps already built in Xcode, and stops holding the moment an agent is expected to work end to end.
+The original four skills owned **"why is this wrong"** completely and **"how do I produce and ship this"** not at all. `ios-test-engineer` now closes the test rows, but every skill still opens by assuming a built, installed application already exists — which held while they were driven by hand against apps already built in Xcode, and stops holding the moment an agent is expected to work end to end.
 
 Closing that is the roadmap.
 
@@ -48,7 +48,7 @@ Closing that is the roadmap.
 
 Each candidate below is judged by the separation test in [ARCHITECTURE.md](ARCHITECTURE.md#why-one-repository-one-plugin): a skill earns its own directory by having a distinct failure taxonomy, a distinct authority boundary, and a distinct evidence artifact. Anything failing that test belongs in an existing skill's `references/` instead.
 
-### 5. `ios-test-engineer` — highest priority
+### 5. `ios-test-engineer` — **shipped in v1.1.0**
 
 **Covers** report §5–6: `xcodebuild test`, `build-for-testing` / `test-without-building`, `.xctestproducts`, test plans, selection and sharding, `xcresulttool`, `xccov`, attachment export.
 
@@ -56,9 +56,13 @@ Each candidate below is judged by the separation test in [ARCHITECTURE.md](ARCHI
 
 **Failure taxonomy**: flaky versus real failure versus infrastructure failure. This distinction is the whole job, and getting it wrong is worse than not running the tests — the report is explicit that blind retrying hides flakiness, and that retries must be confined to identified infrastructure failures with the original failure preserved as evidence.
 
-First by daily frequency: running tests and interpreting the result is the most common thing an iOS developer asks for, and it is currently the largest hole. `.xcresult` also being a well-specified, pinnable artifact makes it the most tractable of the five.
+Built from a live empirical study rather than documentation: a purpose-built SwiftPM package and Xcode project, run under every repetition mode, with the resulting bundles kept as fixtures.
 
-### 6. `ios-build-engineer`
+The study turned up the finding the skill is built around. Under `-retry-tests-on-failure`, a test that fails then passes makes the run report `result: Passed`, `failedTests: 0` and an **empty `testFailures` array** — the failure survives only as a `Repetition` node inside the hierarchy. Anything reading the summary reports green. `test_results.py triage` walks the hierarchy and surfaces these as **hidden flakes**.
+
+Still unverified: physical-device test execution. The study machine had no device attached, so that lane is documented as unverified rather than implied to work.
+
+### 6. `ios-build-engineer` — next
 
 **Covers** report §1–2: toolchain pinning and `DEVELOPER_DIR`, scheme and destination discovery, JSON build settings, locating the product without guessing, `archive` and `exportArchive`, signing and provisioning diagnosis.
 
@@ -68,7 +72,7 @@ First by daily frequency: running tests and interpreting the result is the most 
 
 **Authority**: the sharpest of the five. The report flags automatic signing mutation as a risk requiring pre-provisioned, scoped identities and explicit approval, because a careless build invocation can change Developer Portal state. This skill must read signing configuration freely and change it only on request.
 
-Second because it is the precondition every other skill quietly assumes.
+Now first in line, and the precondition every other skill quietly assumes. It also unblocks serious matrix support: scheme and destination discovery is build-engineer territory, and `ios-test-engineer` currently carries a minimal version of it in `test_doctor.py`.
 
 ### 7. `ios-device-operator`
 
@@ -142,11 +146,12 @@ Target binding, run-directory conventions, capability probing, and redaction rul
 
 | | Skills | Result |
 |---|---|---|
-| **v1.0.0** | 4 | Diagnosis is complete; production and shipping are absent |
-| **Next** | 7 | Closes every row of the report's capability map |
-| **Full** | 9 | Complete development lifecycle, including memory graphs and crash triage |
+| v1.0.0 | 4 | Diagnosis complete; production and shipping absent |
+| **v1.1.0** | **5** | **Test execution and result analysis closed** |
+| Next | 7 | Closes every row of the report's capability map |
+| Full | 9 | Complete development lifecycle, including memory graphs and crash triage |
 
-Order: `ios-test-engineer`, then `ios-build-engineer`, then `ios-device-operator`. Memory and crash after, if at all.
+Remaining order: `ios-build-engineer`, then `ios-device-operator`. Memory and crash after, if at all.
 
 ## Contributing to the roadmap
 

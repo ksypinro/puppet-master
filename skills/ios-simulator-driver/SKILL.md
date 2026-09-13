@@ -5,7 +5,7 @@ license: MIT
 compatibility: Requires macOS, full Xcode with an installed iOS Simulator runtime, and Python 3.9+. Needs at least one UI driver (AXe, idb, XcodeBuildMCP, Appium/WebDriverAgent, or a source-owned XCUIAutomation runner); simctl alone cannot synthesize taps. Visual checks need host image inspection.
 metadata:
   author: Kazi Samin Yeaser
-  version: "1.0.0"
+  version: "1.1.0"
   repository: https://github.com/ksypinro/puppet-master
   short-description: Drive and inspect iOS Simulator apps through a closed observe-act-verify loop
 ---
@@ -108,11 +108,12 @@ When the task is to build an MCP server, CLI facade, or AXe-like controller rath
 
 ## Route by symptom
 
-These four skills are one toolkit. Route on the symptom, not on the surface:
+These five skills are one toolkit. Route on the symptom, not on the surface:
 
 - Reaching a screen, dispatching input, or verifying a UI flow — **this skill**.
 - A view is misplaced, clipped, overlapping, mis-styled, or untappable, or you need the native tree, geometry, or constraints — `ios-view-hierarchy-debugger`.
 - A value, branch, or model state is wrong, or you need the code path that produced it — `lldb-code-state-debugger`.
 - Launch time, CPU, hangs, jank, memory growth, leaks, I/O, or power — `ios-instruments-profiler`.
+- Running a suite, reading a result bundle, classifying a failure, or coverage — `ios-test-engineer`.
 
 Hand off when the evidence needed is not the evidence this skill produces. If a listed skill is unavailable, say what it would have established rather than substituting weaker evidence for it. Preserve the established target — UDID or device, bundle ID, PID, build identity, driver session, and run directory — across the handoff; re-deriving it invalidates element references and pointers.

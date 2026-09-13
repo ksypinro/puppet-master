@@ -1,0 +1,12 @@
+# Codex skill metadata (agents/openai.yaml).
+# Additive: runtimes that do not understand this file ignore it.
+# Spec: https://learn.chatgpt.com/docs/build-skills
+interface:
+  display_name: "iOS Test Engineer"
+  short_description: "Run iOS tests and read the result bundle honestly"
+  default_prompt: "Use $ios-test-engineer to run the suite and tell me whether the failures are real."
+
+policy:
+  # Safe to route implicitly. Every script is read-only except run_tests.py,
+  # which executes only the command it prints and never retries on its own.
+  allow_implicit_invocation: true

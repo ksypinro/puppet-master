@@ -12,10 +12,21 @@ For skills, versioning is interpreted as:
 
 ## [Unreleased]
 
+### Added
+- **`ios-test-engineer`** — run XCTest, Swift Testing and XCUITest suites and turn
+  the result bundle into trustworthy evidence. Discovers schemes (flagging any
+  that are not shared), test plans and per-scheme destinations; runs with a
+  watchdog and a reproducibility manifest; classifies every failure as
+  deterministic, flaky, infrastructure or unclassified; **detects hidden flakes**
+  — tests a run reports as passed that failed a repetition and never appear in
+  `testFailures`; and reports region-aware coverage that separates dead code from
+  sub-expressions which never evaluated.
+
 ### Planned
 See [ROADMAP.md](ROADMAP.md) for the full plan and its rationale.
 
-- `ios-test-engineer`, `ios-build-engineer`, and `ios-device-operator` — the three skills that close the remaining rows of the research baseline's capability map.
+- `ios-build-engineer` and `ios-device-operator` — the two remaining skills that
+  close the research baseline's capability map.
 - `session.json` handoff file so target binding survives context compaction.
 - Shared substrate extracted from duplicated prose across the `SKILL.md` files.
 - End-to-end fixture app exercising the full build → install → drive → test → diagnose chain.

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Repository-level capability probe for the Puppet Master skills.
 
-Answers one question: which of the four skills can actually run here, and what
+Answers one question: which of the skills can actually run here, and what
 is missing for the ones that cannot. It is read-only -- it installs nothing,
 boots nothing, and changes no settings.
 
@@ -54,6 +54,10 @@ SKILL_REQUIREMENTS = {
     "ios-instruments-profiler": (
         ["xcrun", "xcodebuild", "xctrace"],
         "python3 skills/ios-instruments-profiler/scripts/xctrace_doctor.py",
+    ),
+    "ios-test-engineer": (
+        ["xcrun", "xcodebuild"],
+        "python3 skills/ios-test-engineer/scripts/test_doctor.py --destinations",
     ),
 }
 
