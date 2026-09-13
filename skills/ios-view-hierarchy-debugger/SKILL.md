@@ -5,7 +5,7 @@ license: MIT
 compatibility: Requires macOS, full Xcode, Python 3.9+, and debugger access to the target app on Simulator or a debuggable device build. Visual checks need host image inspection. Does not grant access to apps you cannot already debug.
 metadata:
   author: Kazi Samin Yeaser
-  version: "1.1.0"
+  version: "1.2.0"
   repository: https://github.com/ksypinro/puppet-master
   short-description: Inspect and explain runtime iOS and iPadOS UI state using native view hierarchy 
 ---
@@ -103,12 +103,13 @@ The research foundation and provider-specific limits are in [references/research
 
 ## Route by symptom
 
-These five skills are one toolkit. Route on the symptom, not on the surface:
+These six skills are one toolkit. Route on the symptom, not on the surface:
 
 - Reaching a screen, dispatching taps, text, or gestures, or verifying a UI flow — `ios-simulator-driver`.
 - Explaining what is drawn, from native view evidence — **this skill**.
 - A value, branch, or model state is wrong, or you need the code path that produced it — `lldb-code-state-debugger`.
 - Launch time, CPU, hangs, jank, memory growth, leaks, I/O, or power — `ios-instruments-profiler`.
 - Running a suite, reading a result bundle, classifying a failure, or coverage — `ios-test-engineer`.
+- Why an object is still alive, what is retaining it, or where the bytes went at a checkpoint — `ios-memory-debugger`.
 
 Hand off when the evidence needed is not the evidence this skill produces. If a listed skill is unavailable, say what it would have established rather than substituting weaker evidence for it. Preserve the established target — UDID or device, bundle ID, PID, build identity, driver session, and run directory — across the handoff; re-deriving it invalidates element references and pointers.

@@ -4,7 +4,7 @@ description: Debug live native application code state with LLDB. Use to reproduc
 license: MIT
 metadata:
   author: Kazi Samin Yeaser
-  version: "1.1.0"
+  version: "1.2.0"
   repository: https://github.com/ksypinro/puppet-master
   short-description: Debug live native application code state with LLDB
 ---
@@ -77,12 +77,13 @@ Save a task-owned evidence report containing: target/build identity; action and 
 
 ## Route by symptom
 
-These five skills are one toolkit. Route on the symptom, not on the surface:
+These six skills are one toolkit. Route on the symptom, not on the surface:
 
 - Reaching a screen, dispatching taps, text, or gestures, or verifying a UI flow — `ios-simulator-driver`.
 - A view is misplaced, clipped, overlapping, mis-styled, or untappable, or you need the native tree, geometry, or constraints — `ios-view-hierarchy-debugger`.
 - Explaining why a value, branch, or model state is wrong — **this skill**.
 - Launch time, CPU, hangs, jank, memory growth, leaks, I/O, or power — `ios-instruments-profiler`.
 - Running a suite, reading a result bundle, classifying a failure, or coverage — `ios-test-engineer`.
+- Why an object is still alive, what is retaining it, or where the bytes went at a checkpoint — `ios-memory-debugger`.
 
 Hand off when the evidence needed is not the evidence this skill produces. If a listed skill is unavailable, say what it would have established rather than substituting weaker evidence for it. Preserve the established target — UDID or device, bundle ID, PID, build identity, driver session, and run directory — across the handoff; re-deriving it invalidates element references and pointers.

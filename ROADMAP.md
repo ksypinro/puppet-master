@@ -86,7 +86,7 @@ Now first in line, and the precondition every other skill quietly assumes. It al
 
 Third because it upgrades the whole toolkit rather than only adding to it: `ios-simulator-driver` is Simulator-only by design, and the other three degrade to Simulator today. This skill is what makes device-fidelity claims — the ones `ios-instruments-profiler` already refuses to make from Simulator data — actually reachable.
 
-### 8. `ios-memory-analyst` — optional
+### 8. `ios-memory-debugger` — **shipped in v1.2.0**
 
 **Covers** report §10: `.memgraph` capture and reopening, `vmmap`, `heap`, `leaks`, `malloc_history`, `MallocStackLogging`, and the documented escalation to Xcode's GUI Memory Graph on physical devices.
 
