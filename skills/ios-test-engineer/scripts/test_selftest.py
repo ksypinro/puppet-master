@@ -40,6 +40,7 @@ def _load(name: str):
 test_results = _load("test_results")
 coverage_report = _load("coverage_report")
 xctest_selection = _load("xctest_selection")
+xcresult_util = _load("xcresult_util")
 
 
 # Real xcodebuild and testmanagerd wording for genuine runner failures.
@@ -250,6 +251,80 @@ class SelectionVerification(unittest.TestCase):
         good = xctest_selection.evaluate(ids, [("filter", "SearchTests")], [],
                                          xctest_selection.regex_matches, names)
         self.assertEqual((good["unmatched_selectors"], good["selected"]), (0, 1))
+
+
+class SharedHelpers(unittest.TestCase):
+    """One error class and one bundle validator for the whole skill.
+
+    These lived in three copies with three different error messages until they
+    were pulled into xcresult_util. Five separate ToolError classes also meant
+    `except ToolError` in one module could not catch another module's failure.
+    """
+
+    def test_one_error_class_is_shared(self):
+        """Every script's ToolError must come from xcresult_util.
+
+        Asserted by definition site rather than object identity: this test
+        module loads helpers through its own loader, so the same class can
+        legitimately exist as two objects here while still having one source.
+        """
+        import compare_runs
+        import coverage_report
+        import test_results
+        for mod in (test_results, coverage_report, compare_runs):
+            self.assertEqual(mod.ToolError.__module__, "xcresult_util",
+                             f"{mod.__name__} defines its own ToolError")
+
+    def test_no_script_redefines_the_shared_helpers(self):
+        """Guard against a copy creeping back in."""
+        for name in ("test_results", "coverage_report", "compare_runs"):
+            src = (HERE / f"{name}.py").read_text()
+            for banned in ("class ToolError(", "def resolve_bundle(",
+                           "def xcresulttool("):
+                self.assertNotIn(banned, src,
+                                 f"{name}.py redefines {banned.strip('(')} -- "
+                                 f"import it from xcresult_util instead")
+
+    def test_bundle_validation_rejects_each_bad_shape(self):
+        import tempfile
+        d = Path(tempfile.mkdtemp(prefix="xcrutil-"))
+        cases = {
+            "missing": d / "nope.xcresult",
+            "a plain file": d / "file.xcresult",
+            "directory without Info.plist": d / "shell.xcresult",
+        }
+        cases["a plain file"].write_text("x")
+        cases["directory without Info.plist"].mkdir()
+        for label, path in cases.items():
+            with self.subTest(label):
+                with self.assertRaises(xcresult_util.ToolError):
+                    xcresult_util.resolve_bundle(path)
+
+    def test_bundle_validation_accepts_a_real_shape(self):
+        import tempfile
+        d = Path(tempfile.mkdtemp(prefix="xcrutil-")) / "ok.xcresult"
+        d.mkdir(parents=True)
+        (d / "Info.plist").write_text("<plist/>")
+        self.assertEqual(xcresult_util.resolve_bundle(d).name, "ok.xcresult")
+
+    def test_run_returns_outcome_rather_than_raising(self):
+        """Exit codes are data here: xcodebuild and leaks use them for findings."""
+        ok = xcresult_util.run(["true"])
+        bad = xcresult_util.run(["false"])
+        self.assertEqual(ok["exit"], 0)
+        self.assertEqual(bad["exit"], 1)
+        self.assertFalse(bad["timedOut"])
+
+    def test_run_reports_a_missing_binary_without_raising(self):
+        r = xcresult_util.run(["definitely-not-a-real-binary-xyz"])
+        self.assertEqual(r["exit"], 127)
+
+    def test_timeouts_are_named_per_operation(self):
+        for key in ("read", "compare", "merge", "enumerate"):
+            self.assertIsInstance(xcresult_util.TIMEOUTS[key], int)
+        # merging N bundles legitimately takes longer than reading one
+        self.assertGreater(xcresult_util.TIMEOUTS["merge"],
+                           xcresult_util.TIMEOUTS["read"])
 
 
 class DurationParsing(unittest.TestCase):

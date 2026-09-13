@@ -30,36 +30,18 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import subprocess
 import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-DEFAULT_TIMEOUT = 300
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from xcresult_util import (  # noqa: E402
+    TIMEOUTS, ToolError, resolve_bundle, xcresulttool,
+)
 
-
-class ToolError(RuntimeError):
-    pass
-
-
-def xcresulttool(args: List[str], timeout: int = DEFAULT_TIMEOUT) -> str:
-    if not shutil.which("xcrun"):
-        raise ToolError("xcrun not found. Requires macOS with full Xcode.")
-    proc = subprocess.run(["xcrun", "xcresulttool"] + args, capture_output=True,
-                          text=True, timeout=timeout, check=False)
-    if proc.returncode != 0:
-        raise ToolError(f"xcresulttool failed ({proc.returncode}): "
-                        f"{(proc.stderr or proc.stdout).strip()[:400]}")
-    return proc.stdout
-
-
-def resolve(path: Path) -> Path:
-    b = path.expanduser().resolve()
-    if not (b / "Info.plist").exists():
-        raise ToolError(f"not a readable .xcresult bundle: {b}")
-    return b
+DEFAULT_TIMEOUT = TIMEOUTS["compare"]
 
 
 # --------------------------------------------------------------------------
@@ -116,7 +98,7 @@ def merge(bundles: List[Path], out: Path) -> Dict[str, Any]:
     if out.exists():
         raise ToolError(f"{out} already exists; choose a new --out")
     xcresulttool(["merge"] + [str(b) for b in bundles] +
-                 ["--output-path", str(out)], timeout=900)
+                 ["--output-path", str(out)], timeout=TIMEOUTS["merge"])
     return {
         "merged": [str(b) for b in bundles],
         "output": str(out),
@@ -272,11 +254,11 @@ def main() -> int:
     args = p.parse_args()
 
     try:
-        bundles = [resolve(b) for b in args.bundles]
+        bundles = [resolve_bundle(b) for b in args.bundles]
         if args.command == "compare":
             if not args.base:
                 p.error("compare requires --base")
-            result = compare(bundles[0], resolve(args.base))
+            result = compare(bundles[0], resolve_bundle(args.base))
             render = _render_compare
         elif args.command == "merge":
             if not args.out:

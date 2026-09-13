@@ -64,6 +64,7 @@ Resolve `SKILL_DIR` to this file's directory; paths below are relative to it.
 | `scripts/coverage_report.py` | `report` `gaps` `changed` `hot` — region-aware, so a gate never fires on an autoclosure |
 | `scripts/compare_runs.py` | `compare` a candidate to a baseline, `merge` bundles, `matrix` attribution across cells |
 | `scripts/xctest_selection.py` | Prove an `-only-testing` or `--filter` selection matches real tests **before** running |
+| `scripts/xcresult_util.py` | Shared bundle validation, tool invocation and error type |
 | `scripts/test_selftest.py` | Self-test for the classification logic; runs offline, no Xcode needed |
 
 ## The loop

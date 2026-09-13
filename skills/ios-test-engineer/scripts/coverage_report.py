@@ -39,13 +39,14 @@ import argparse
 import json
 import os
 import re
-import shutil
-import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-DEFAULT_TIMEOUT = 180
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from xcresult_util import (  # noqa: E402
+    DEFAULT_TIMEOUT, ToolError, resolve_bundle, xccov,
+)
 
 # Regions the Swift compiler synthesises. A zero-execution region whose name
 # matches one of these is almost never dead code.
@@ -61,31 +62,13 @@ ARCHIVE_LINE = re.compile(r"^\s*(\d+):\s+(\*|\d+)", re.M)
 TEST_BUNDLE = re.compile(r"\.(xctest|appex)$|Tests?\.xctest$")
 
 
-class ToolError(RuntimeError):
-    pass
-
-
-def _run(argv: List[str], timeout: int = DEFAULT_TIMEOUT) -> str:
-    if not shutil.which("xcrun"):
-        raise ToolError("xcrun not found. Requires macOS with full Xcode.")
-    try:
-        proc = subprocess.run(argv, capture_output=True, text=True,
-                              timeout=timeout, check=False)
-    except subprocess.TimeoutExpired:
-        raise ToolError(f"timed out after {timeout}s: {' '.join(argv[:4])}")
-    if proc.returncode != 0:
-        raise ToolError(f"{argv[1]} failed ({proc.returncode}): "
-                        f"{(proc.stderr or proc.stdout).strip()[:400]}")
-    return proc.stdout
-
-
 class NoCoverage(ToolError):
     """The bundle was recorded without coverage. Not recoverable after the fact."""
 
 
 def load_report(bundle: Path) -> Dict[str, Any]:
     try:
-        out = _run(["xcrun", "xccov", "view", "--report", "--json", str(bundle)])
+        out = xccov(["view", "--report", "--json", str(bundle)])
     except ToolError as exc:
         if "No coverage data" in str(exc):
             raise NoCoverage(
@@ -105,21 +88,11 @@ def load_report(bundle: Path) -> Dict[str, Any]:
 def line_hits(bundle: Path, source: str) -> Dict[int, str]:
     """Per-line hit counts. '*' means the line is not executable."""
     try:
-        out = _run(["xcrun", "xccov", "view", "--archive",
-                    "--file", source, str(bundle)])
+        out = xccov(["view", "--archive", "--file", source, str(bundle)])
     except ToolError:
         return {}
     return {int(m.group(1)): m.group(2)
             for m in ARCHIVE_LINE.finditer(out)}
-
-
-def resolve_bundle(path: Path) -> Path:
-    b = path.expanduser().resolve()
-    if not b.exists():
-        raise ToolError(f"no such bundle: {b}")
-    if not (b / "Info.plist").exists():
-        raise ToolError(f"not an .xcresult bundle: {b}")
-    return b
 
 
 def _is_test_target(name: str) -> bool:
