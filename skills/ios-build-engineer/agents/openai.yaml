@@ -1,0 +1,13 @@
+# Codex skill metadata (agents/openai.yaml).
+# Additive: runtimes that do not understand this file ignore it.
+# Spec: https://learn.chatgpt.com/docs/build-skills
+interface:
+  display_name: "iOS Build Engineer"
+  short_description: "Build, sign and run iOS apps from the CLI, and verify the result"
+  default_prompt: "Use $ios-build-engineer to build my app and confirm it actually runs."
+
+policy:
+  # Safe to route implicitly. Every script is read-only except build_run.py and
+  # package_products.py xcframework, which run builds. Nothing changes signing
+  # configuration and nothing contacts the Developer Portal.
+  allow_implicit_invocation: true

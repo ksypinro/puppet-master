@@ -9,9 +9,19 @@
     {
       "name": "puppet-master",
       "source": "./",
-      "description": "Drive, inspect, debug, and profile iOS apps from an agent: Simulator UI automation, native view hierarchy evidence, LLDB root-cause analysis, and Instruments performance measurement.",
+      "description": "Build, run, drive, inspect, debug, and profile iOS apps from an agent: CLI build and verified launch, Simulator UI automation, native view hierarchy evidence, LLDB root-cause analysis, memory graph analysis, and Instruments performance measurement.",
       "category": "development",
-      "keywords": ["ios", "simulator", "xcode", "lldb", "instruments", "debugging"]
+      "keywords": [
+        "ios",
+        "simulator",
+        "xcode",
+        "lldb",
+        "instruments",
+        "debugging",
+        "build",
+        "xcodebuild",
+        "codesigning"
+      ]
     }
   ]
 }

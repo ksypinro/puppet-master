@@ -1,6 +1,6 @@
 # Puppet Master
 
-**Five composable [Agent Skills](https://agentskills.io) that let a coding agent drive, test, inspect, debug, and profile iOS apps — with evidence instead of guesses.**
+**Seven composable [Agent Skills](https://agentskills.io) that let a coding agent build, run, drive, test, inspect, debug, and profile iOS apps — with evidence instead of guesses.**
 
 [![CI](https://github.com/ksypinro/puppet-master/actions/workflows/ci.yml/badge.svg)](https://github.com/ksypinro/puppet-master/actions/workflows/ci.yml)
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-spec%20compliant-6b46c1)](https://agentskills.io/specification)
@@ -24,25 +24,33 @@ That detects every coding agent on your machine and installs into each. It downl
 
 | Skill | Answers | Core evidence |
 |---|---|---|
+| **[ios-build-engineer](skills/ios-build-engineer)** | "Did it build, and is it actually running?" | Structured build diagnostics, resolved products, verified liveness |
 | **[ios-simulator-driver](skills/ios-simulator-driver)** | "Does this flow work?" | Accessibility snapshots, screenshots, verified postconditions |
 | **[ios-view-hierarchy-debugger](skills/ios-view-hierarchy-debugger)** | "Why does it *look* wrong?" | Native UIKit tree, geometry, constraints, layer state |
 | **[lldb-code-state-debugger](skills/lldb-code-state-debugger)** | "Why is the *value* wrong?" | Breakpoints, stopped stacks, stored variables, watchpoints |
 | **[ios-instruments-profiler](skills/ios-instruments-profiler)** | "Why is it *slow*?" | xctrace recordings, XCTest metrics, bounded reductions |
+| **[ios-memory-debugger](skills/ios-memory-debugger)** | "Why is this *still alive*?" | Reference graph, dominator tree, retained size |
 | **[ios-test-engineer](skills/ios-test-engineer)** | "Did it pass, and is that failure real?" | Result bundles, flake classification, region-aware coverage |
 
-They are one toolkit, not five independent tools. `ios-simulator-driver` is the actuator; the diagnostic skills call into it to reach a screen and reproduce a scenario.
+They are one toolkit, not seven independent tools. `ios-build-engineer` produces the running app every other skill assumes; `ios-simulator-driver` is the actuator, and the diagnostic skills call into it to reach a screen and reproduce a scenario.
 
 ```
+                    ios-build-engineer
+                 (build it, run it, prove
+                    it is actually alive)
+                            │
+            ┌───────────────┴───────────────┐
+            ▼                               ▼
    ios-test-engineer            ios-simulator-driver
    (run the suite, read           (reach the screen,
     the verdict honestly)          act, verify)
             │                            │
             └──────────┬─────────────────┘
                        │
-     ┌─────────────────┼─────────────────┐
-     ▼                 ▼                 ▼
-view-hierarchy   lldb-code-state    instruments
-wrong pixels      wrong values      wrong timing
+     ┌───────────┬─────┴─────┬───────────┐
+     ▼           ▼           ▼           ▼
+view-hierarchy  lldb    instruments    memory
+wrong pixels  wrong values wrong timing  still alive
 ```
 
 ### Which one do I need?
@@ -51,11 +59,13 @@ You do not choose — your agent does, from the `description` in each skill. But
 
 | Symptom | Skill |
 |---|---|
+| Build it, sign it, package it, or get it running | `ios-build-engineer` |
 | Can't reach the screen; need to tap, type, swipe, navigate | `ios-simulator-driver` |
 | Misplaced, clipped, overlapping, mis-styled, untappable view | `ios-view-hierarchy-debugger` |
 | Wrong text, wrong number, wrong branch, stale model state | `lldb-code-state-debugger` |
 | Slow launch, jank, hitches, leaks, memory growth, battery | `ios-instruments-profiler` |
 | Run the suite, read a result bundle, is this failure real, coverage | `ios-test-engineer` |
+| Why an object is still alive, what retains it, where the bytes went | `ios-memory-debugger` |
 
 ## What makes these different
 
