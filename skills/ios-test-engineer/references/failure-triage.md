@@ -7,14 +7,15 @@ entirely here.
 
 ## The rule
 
-**Retry only an infrastructure failure.** In every other case a retry converts a
-true signal into a green build.
+**Retry only a correlated infrastructure failure.** In every other case a retry
+can convert a true signal into a green build.
 
 An infrastructure failure means the assertion never ran — the runner did not
 launch, the test manager never connected, the simulator was shut down, the
-install failed. Retrying is correct because nothing about the product was
-tested. Anything else — a failed assertion, a crash inside the app, a timeout
-waiting on the app — is evidence, and retrying destroys it.
+install failed. A retry is justified only after the runner evidence is tied to
+the same destination, process, attempt, and time. Anything else — a failed
+assertion, a crash inside the app, or a timeout waiting on the app — is product
+evidence that must remain visible even if a diagnostic rerun later passes.
 
 ## Step 1: run triage before anything else
 
@@ -135,7 +136,8 @@ activity tree (`test_results.py activities`).
 A complete triage report names:
 
 1. The verdict per failure and the classification behind it.
-2. The repetition mode that produced it.
+2. The repetition mode from the adjacent `manifest.json`; the result bundle does
+   not reliably encode the originating CLI policy.
 3. Whether a retry is justified, and for which failures specifically.
 4. Hidden flakes, separately, even when the run was green.
 5. What remains unknown — a bundle without diagnostics cannot confirm an
@@ -148,8 +150,9 @@ the test plan's `skippedTests`, not a retry flag:
 
 - `skippedTests` in a `.xctestplan` removes it from the run explicitly, and
   `test_doctor.py` reports which plans have entries.
-- A retry flag leaves the test nominally running while guaranteeing it reports
-  green. That is not quarantine; it is concealment.
+- A retry flag leaves the test nominally running and may turn a fail-then-pass
+  sequence green. It does not guarantee success when all allowed attempts fail,
+  and it is not quarantine.
 
 Either way, a quarantined test is debt. Report the count alongside the verdict so
 it stays visible. `expectedFailures` in the summary is the same kind of debt for

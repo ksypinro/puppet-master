@@ -3,15 +3,16 @@
 
     compare  <candidate> --base <baseline>   introduced / resolved deltas
     merge    <bundle> [<bundle> ...] --out   one bundle from many
-    matrix   <bundle> [<bundle> ...]         per-cell verdicts + failure attribution
+    matrix   <bundle> [<bundle> ...]         per-cell verdicts + correlation hypotheses
 
-Add --json for machine-readable output, and --fail-on-introduced to exit
-non-zero when a comparison introduces anything.
+Add --json for machine-readable output. `--fail-on-introduced` exits non-zero
+when a comparison introduces anything or its bundle evidence is not gate-ready.
 
 WHY EACH EXISTS
 
-`compare` is a complete PR gate with no history database behind it. Gate on
-`introduced`, report `resolved`. It also surfaces `testsExecuted.removed` --
+`compare` is one input to a PR gate. Gate on `introduced`, report `resolved`,
+and separately establish run completeness and comparable build provenance. It
+also surfaces `testsExecuted.removed` --
 a test that disappears (deleted, skipped, or lost to a scheme change) makes the
 suite greener while making it weaker, and a plain pass/fail gate cannot see it.
 
@@ -40,6 +41,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from xcresult_util import (  # noqa: E402
     TIMEOUTS, ToolError, resolve_bundle, xcresulttool,
 )
+from test_results import hidden_flakes  # noqa: E402
 
 DEFAULT_TIMEOUT = TIMEOUTS["compare"]
 
@@ -65,6 +67,25 @@ def compare(candidate: Path, baseline: Path) -> Dict[str, Any]:
     executed = summary.get("testsExecuted", {}) or {}
     total_introduced = sum(introduced.values())
 
+    candidate_cell = _cell(candidate)
+    baseline_cell = _cell(baseline)
+    comparable_results = (candidate_cell["effectiveResult"] != "Incomplete" and
+                          baseline_cell["effectiveResult"] != "Incomplete")
+    warnings = (
+        ["Tests disappeared between runs. A suite that shrinks looks greener "
+         "while covering less -- confirm this was intentional."]
+        if executed.get("removed") else [])
+    if not comparable_results:
+        warnings.append("At least one bundle is incomplete or contains zero tests; "
+                        "the comparison cannot support a gate.")
+    if candidate_cell["hiddenFlakeCount"]:
+        warnings.append("The candidate reports Passed while one or more failed "
+                        "repetitions remain in its hierarchy; it is not clean.")
+
+    verdict = "inconclusive" if not comparable_results else (
+        "regressed" if total_introduced else
+        "improved" if sum(resolved.values()) else "unchanged")
+
     return {
         "candidate": str(candidate),
         "baseline": str(baseline),
@@ -78,12 +99,15 @@ def compare(candidate: Path, baseline: Path) -> Dict[str, Any]:
             "inCurrent": executed.get("itemsInCurrent", 0),
         },
         "detail": raw.get("testFailures"),
-        "verdict": "regressed" if total_introduced else (
-            "improved" if sum(resolved.values()) else "unchanged"),
-        "warnings": (
-            ["Tests disappeared between runs. A suite that shrinks looks "
-             "greener while covering less -- confirm this was intentional."]
-            if executed.get("removed") else []),
+        "verdict": verdict,
+        "candidateRun": candidate_cell,
+        "baselineRun": baseline_cell,
+        "gateReady": (comparable_results and not executed.get("removed") and
+                      candidate_cell["effectiveResult"] == "Passed"),
+        "requiredExternalCheck": ("Compare manifest build identity, scheme, plan, "
+                                  "configuration and destination before treating "
+                                  "these deltas as causal."),
+        "warnings": warnings,
     }
 
 
@@ -124,26 +148,43 @@ def _cell(bundle: Path) -> Dict[str, Any]:
             "platform": dev.get("platform"),
             "os": dev.get("osVersion"),
             "osBuild": dev.get("osBuildNumber"),
+            "deviceId": dev.get("deviceId"),
             "configuration": (dc.get("testPlanConfiguration") or {}).get(
                 "configurationName"),
         })
     label = "unknown"
     if devices:
         d = devices[0]
-        label = f"{d['name']} {d['os']} / {d['configuration']}"
+        label = (f"{d['name']} {d['os']} ({d['osBuild']}) "
+                 f"[{d['deviceId']}] / {d['configuration']}")
+    recorded = raw.get("result")
+    total = raw.get("totalTestCount", 0)
+    hidden = hidden_flakes(bundle) if total else []
+    effective = ("Incomplete" if not total or recorded not in ("Passed", "Failed")
+                 else "PassedWithHiddenFailures"
+                 if recorded == "Passed" and hidden else recorded)
+    hidden_failures = [
+        {"identifier": h.get("identifier"), "url": None,
+         "text": "failed a repetition before the reported pass",
+         "hiddenRetryFailure": True}
+        for h in hidden
+    ]
     return {
         "bundle": str(bundle),
+        "cellKey": str(bundle),
         "label": label,
-        "result": raw.get("result"),
+        "result": recorded,
+        "effectiveResult": effective,
         "devices": devices,
         "totalTestCount": raw.get("totalTestCount", 0),
         "failedTests": raw.get("failedTests", 0),
+        "hiddenFlakeCount": len(hidden),
         "failures": [
             {"identifier": f.get("testIdentifierString"),
              "url": f.get("testIdentifierURL"),
              "text": (f.get("failureText") or "").strip()}
             for f in raw.get("testFailures", []) or []
-        ],
+        ] + hidden_failures,
     }
 
 
@@ -152,35 +193,44 @@ def matrix(bundles: List[Path]) -> Dict[str, Any]:
 
     by_test: Dict[str, List[str]] = defaultdict(list)
     by_cell: Dict[str, List[str]] = defaultdict(list)
+    labels = {c["cellKey"]: c["label"] for c in cells}
     for c in cells:
         for f in c["failures"]:
             key = f["url"] or f["identifier"] or "?"
-            by_test[key].append(c["label"])
-            by_cell[c["label"]].append(key)
+            by_test[key].append(c["cellKey"])
+            by_cell[c["cellKey"]].append(key)
 
     total_failures = sum(len(c["failures"]) for c in cells)
-    failing_cells = [c for c in cells if c["result"] != "Passed"]
+    failing_cells = [c for c in cells if c["effectiveResult"] != "Passed"]
 
-    # Attribution: which of the three patterns is this?
+    # Correlation hypotheses, not root-cause attribution.
     patterns = []
-    cross_platform = {t: cs for t, cs in by_test.items() if len(cs) > 1}
+    cross_platform = {t: sorted(set(cs)) for t, cs in by_test.items()
+                      if len(set(cs)) > 1}
     if cross_platform:
         patterns.append({
-            "pattern": "one-bug-many-cells",
-            "detail": [{"test": t, "cells": cs} for t, cs in cross_platform.items()],
-            "action": ("One test failing across several cells is usually one bug "
-                       "with platform reach. Fix once, not per cell."),
+            "pattern": "same-test-many-cells",
+            "confidence": "hypothesis",
+            "detail": [{"test": t,
+                        "cells": [{"key": key, "label": labels[key]} for key in cs]}
+                       for t, cs in cross_platform.items()],
+            "action": ("The same test failed in several cells. Compare failure "
+                       "text, source location and diagnostics before deciding "
+                       "whether it is one shared product defect."),
         })
-    for cell_label, tests_failed in by_cell.items():
-        if len(tests_failed) >= 3 and len(set(tests_failed)) == len(tests_failed):
+    for cell_key, tests_failed in by_cell.items():
+        distinct = set(tests_failed)
+        if len(distinct) >= 3:
             patterns.append({
                 "pattern": "unhealthy-cell",
-                "detail": {"cell": cell_label, "distinctFailures": len(tests_failed)},
-                "action": ("Several unrelated tests failing in one cell points at "
-                           "the destination, not the product. Check that cell's "
-                           "diagnostics before touching any test."),
+                "confidence": "hypothesis",
+                "detail": {"cellKey": cell_key, "cell": labels[cell_key],
+                           "distinctFailures": len(distinct)},
+                "action": ("Several distinct tests failed in one cell. That makes "
+                           "the destination a useful hypothesis; correlate its "
+                           "diagnostics before assigning cause."),
             })
-    independent = [t for t, cs in by_test.items() if len(cs) == 1]
+    independent = [t for t, cs in by_test.items() if len(set(cs)) == 1]
     if independent and not patterns:
         patterns.append({
             "pattern": "independent-failures",
@@ -195,6 +245,9 @@ def matrix(bundles: List[Path]) -> Dict[str, Any]:
         "failingCells": [c["label"] for c in failing_cells],
         "totalFailures": total_failures,
         "distinctFailingTests": len(by_test),
+        "hypotheses": patterns,
+        # Compatibility alias for v1 consumers. These are hypotheses, not
+        # established attribution.
         "attribution": patterns,
         "note": ("Cells that were never run do not appear here. State skipped "
                  "or invalid combinations explicitly -- a matrix with unstated "
@@ -218,6 +271,8 @@ def _render_compare(d: Dict[str, Any]) -> None:
           f"   added {e['added']}   removed {e['removed']}")
     for w in d["warnings"]:
         print(f"\n  ! {w}")
+    print(f"\n  gate ready: {'yes' if d['gateReady'] else 'no'}")
+    print(f"  {d['requiredExternalCheck']}")
     print()
 
 
@@ -226,15 +281,15 @@ def _render_matrix(d: Dict[str, Any]) -> None:
           f"{d['totalFailures']} failure(s) across "
           f"{d['distinctFailingTests']} distinct test(s)\n")
     for c in d["cells"]:
-        mark = "✓" if c["result"] == "Passed" else "✗"
-        print(f"  {mark} {c['label'][:48]:50s} {c['result']:8s} "
+        mark = "✓" if c["effectiveResult"] == "Passed" else "✗"
+        print(f"  {mark} {c['label'][:48]:50s} {c['effectiveResult']:24s} "
               f"{c['totalTestCount']:3d} tests, {c['failedTests']} failed")
     if d["attribution"]:
-        print("\n  attribution")
+        print("\n  correlation hypotheses")
         for p in d["attribution"]:
             print(f"    [{p['pattern']}]")
             print(f"      {p['action']}")
-            if p["pattern"] == "one-bug-many-cells":
+            if p["pattern"] == "same-test-many-cells":
                 for item in p["detail"]:
                     short = (item["test"] or "").rsplit("/", 1)[-1]
                     print(f"        {short} — {len(item['cells'])} cells")
@@ -279,7 +334,7 @@ def main() -> int:
         render(result)
 
     if args.command == "compare" and args.fail_on_introduced:
-        return 1 if result["totalIntroduced"] else 0
+        return 1 if result["totalIntroduced"] or not result["gateReady"] else 0
     return 0
 
 

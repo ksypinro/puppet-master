@@ -29,10 +29,10 @@ not control — a CI artifact, a teammate's upload, something from six months ag
 | Command | Layer | Use it for |
 |---|---|---|
 | `get test-results summary` | verdict, counts, devices, insights | the gate |
-| `get test-results tests` | full hierarchy | inventory, framework split, **hidden flakes** |
+| `get test-results tests` | normalized hierarchy | inventory, framework hint, **hidden flakes** |
 | `get test-results test-details` | per-repetition runs, source location | failure forensics |
-| `get test-results activities` | UI-test step tree | where a UI test stalled |
-| `get test-results insights` | Apple's own clustering | triage ordering |
+| `get test-results activities` | per-run UI-test step trees | stall candidates and attachment context |
+| `get test-results insights` | Apple's own clustering | direct native query; not wrapped here |
 | `get test-results metrics` | measurements with thresholds | gateability |
 | `get build-results` | errors, warnings, analyzer warnings | warning budgets |
 | `export diagnostics` | testmanagerd, scheduling, stdout | infra vs product |
@@ -40,14 +40,16 @@ not control — a CI artifact, a teammate's upload, something from six months ag
 | `compare --baseline-path` | introduced / resolved | PR gating |
 | `merge` | one bundle from many | matrix aggregation |
 
-All of these are wrapped: `test_results.py` for the per-bundle layers,
-`compare_runs.py` for `compare` and `merge`, `coverage_report.py` for `xccov`.
+The other listed layers are wrapped by `test_results.py`, `compare_runs.py`, or
+`coverage_report.py`.
 
 Two are deliberately **not** wrapped:
 
-- **`get log`** — raw build and console logs. Use
-  `xcrun xcresulttool get log --path B --format json` when you need compilation
-  forensics; there is nothing useful to add around it.
+- **`get log`** — raw build and console logs. Use `xcrun xcresulttool get log
+  --path B --type build` (or `action`/`console`). This command does not accept
+  `--format` on the supported toolchain.
+- **`get test-results insights`** — call the native command when the summary's
+  `topInsights` is insufficient.
 - **`export evaluations`** — Xcode 27's model-quality results. Real, and
   genuinely test-shaped, but a different evidence contract with its own scoring
   and judge semantics. It belongs in a skill of its own rather than bolted on
@@ -131,9 +133,9 @@ python3 scripts/test_results.py tests /abs/Run.xcresult
 
 Three things fall out of the shape:
 
-1. **Framework split.** `testFoo()` is XCTest; prose names are Swift Testing.
-   Measured from the bundle, with no source parsing — useful for tracking
-   migration.
+1. **Framework hint.** The script guesses XCTest for conventional `testFoo()`
+   names and Swift Testing otherwise. This is a name heuristic, not measured
+   framework metadata; either framework can use a misleading name.
 2. **`Arguments` nodes explain any count discrepancy**, and on a failure tell you
    *which input* broke. `"gull"` failing while `"kelp"` passes is a far better
    bug report than "the test failed".
@@ -179,8 +181,10 @@ Open com.example.App
    └─ Wait for com.example.App to idle
 ```
 
-- A hung test's **last step names the stall**. Stopping at *"Wait for … to idle"*
-  means the app never quiesced — an app problem, not a test problem.
+- Each failed run's final or failure-associated step is a **stall candidate**,
+  not proof of cause. Stopping at *"Wait for … to idle"* means XCTest was
+  waiting for quiescence; correlate timestamps, app logs, and attachments before
+  deciding whether the app or harness caused it.
 - Timestamps expose the cost split. When *"Setting up automation session"* takes
   seconds per launch, a 44-second test is mostly harness overhead and adding
   iterations buys precision at brutal cost.
@@ -226,8 +230,9 @@ Wraps `xcrun xcresulttool compare`, which emits JSON natively and — unlike
 `get` — rejects a `--format` flag.
 
 Returns `introduced` / `resolved` counts across test failures, build warnings,
-analyzer issues, and tests executed. That is a complete PR gate with no history
-database behind it.
+analyzer issues, and tests executed. This is a comparison component, not a
+complete PR gate: require `gateReady`, inspect hidden retries, and verify the two
+manifests describe comparable builds, plans, configurations, and destinations.
 
 Two things to use it for:
 
