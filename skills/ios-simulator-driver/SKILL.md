@@ -5,7 +5,7 @@ license: MIT
 compatibility: Requires macOS, full Xcode with an installed iOS Simulator runtime, and Python 3.9+. Needs at least one UI driver (AXe, idb, XcodeBuildMCP, Appium/WebDriverAgent, or a source-owned XCUIAutomation runner); simctl alone cannot synthesize taps. Visual checks need host image inspection.
 metadata:
   author: Kazi Samin Yeaser
-  version: "1.3.0"
+  version: "1.4.0"
   repository: https://github.com/ksypinro/puppet-master
   short-description: Drive and inspect iOS Simulator apps through a closed observe-act-verify loop
 ---

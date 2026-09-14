@@ -1,6 +1,6 @@
 {
   "name": "puppet-master",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Four composable Agent Skills for driving, inspecting, debugging, and profiling iOS apps on Simulator and device.",
   "author": {
     "name": "Kazi Samin Yeaser",

@@ -1,4 +1,4 @@
-cff-version: 1.3.0
+cff-version: 1.4.0
 title: "Puppet Master: Composable Agent Skills for iOS Simulator and Device Control"
 message: "If you use these skills in your work, please cite this repository."
 type: software
@@ -28,5 +28,5 @@ keywords:
   - llm-agents
   - debugging
 license: MIT
-version: 1.3.0
+version: 1.4.0
 date-released: "2026-09-14"

@@ -5,7 +5,7 @@ license: MIT
 compatibility: Requires macOS, full Xcode, Python 3.9+, and debugger access to the target app on Simulator or a debuggable device build. Visual checks need host image inspection. Does not grant access to apps you cannot already debug.
 metadata:
   author: Kazi Samin Yeaser
-  version: "1.3.0"
+  version: "1.4.0"
   repository: https://github.com/ksypinro/puppet-master
   short-description: Inspect and explain runtime iOS and iPadOS UI state using native view hierarchy 
 ---

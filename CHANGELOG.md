@@ -12,6 +12,21 @@ For skills, versioning is interpreted as:
 
 ## [Unreleased]
 
+### Changed
+- **`ios-test-engineer` evidence claims tightened.** `compare` no longer
+  describes itself as a complete PR gate — it is one input to one, reports
+  `gateReady`, and returns `inconclusive` when either bundle is `Incomplete`.
+  `matrix` cells carry an `effectiveResult`, so a run reporting `Passed` while
+  carrying failed repetitions becomes `PassedWithHiddenFailures` and counts as a
+  failing cell; previously it counted as green, reproducing inside `matrix` the
+  hole `triage` exists to close. Cell labels gained the OS build and device id.
+- Coverage `deadLines` renamed `uncoveredLines`, with the old key kept as an
+  alias: the evidence is a zero hit count during one run, not proof that source
+  is dead. `changed` no longer presents itself as changed-line coverage.
+- Triage now requires a *correlated* infrastructure failure before a retry is
+  justified, and reads the repetition mode from the run manifest rather than the
+  bundle.
+
 ### Added
 - **`ios-memory-debugger` retained-size analysis.** A capability survey of the
   Darwin memory toolchain found `leaks --dominatorTree` — undocumented, named
