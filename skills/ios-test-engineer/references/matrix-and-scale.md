@@ -95,21 +95,20 @@ Rules that hold:
 - `xcrun simctl bootstatus <UDID> -b` before a run that follows another.
 - Never erase a simulator or re-pair a device automatically to recover.
 
-## Failure attribution across cells
+## Failure correlation across cells
 
 "4 of 40 failed" is not actionable. Three situations look identical in a naive
 count and need different responses:
 
-| Pattern | Means | Response |
+| Pattern | Hypothesis | Response |
 |---|---|---|
 | 4 different tests, 4 different cells | four independent failures | triage each |
-| 1 test failing on 4 platforms | one bug with platform reach | fix once |
-| 4 tests failing on 1 destination | that device or simulator is unhealthy | fix the cell, do not touch the tests |
+| 1 test failing on 4 platforms | possibly one defect with platform reach | compare text, locations and diagnostics |
+| 4 tests failing on 1 destination | possibly an unhealthy cell | correlate cell diagnostics before assigning cause |
 
-`compare_runs.py matrix` does this grouping and names the pattern it found. If
-one destination accounts for most failures, suspect the destination first — and
-check its diagnostics (`test_results.py diagnostics`) before concluding anything
-about the product.
+`compare_runs.py matrix` groups these patterns as hypotheses. It preserves the
+device identifier and OS build and includes hidden retry failures. It does not
+prove a root cause; check each cell's diagnostics and failure evidence.
 
 ## Sharding
 
@@ -145,7 +144,6 @@ State:
 1. The cells that **ran**, and the cells that were **skipped as invalid** — a
    matrix with unstated gaps reads as more coverage than it is.
 2. The aggregate verdict from the merged bundle, and the per-cell verdicts.
-3. Failure attribution: independent failures, one bug across platforms, or one
-   unhealthy cell.
+3. Failure-correlation hypotheses, clearly separated from established cause.
 4. Hidden flakes, per cell. A retry flag applied matrix-wide hides more.
 5. Which destinations were **not** covered, especially any physical device.

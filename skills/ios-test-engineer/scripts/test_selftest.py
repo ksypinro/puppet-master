@@ -20,11 +20,16 @@ judgement that would be dangerous to get wrong:
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import importlib.util
 import re
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent
 
@@ -41,6 +46,8 @@ test_results = _load("test_results")
 coverage_report = _load("coverage_report")
 xctest_selection = _load("xctest_selection")
 xcresult_util = _load("xcresult_util")
+run_tests = _load("run_tests")
+compare_runs = _load("compare_runs")
 
 
 # Real xcodebuild and testmanagerd wording for genuine runner failures.
@@ -135,6 +142,28 @@ class CoverageRegionClassification(unittest.TestCase):
         for entry, expected in cases:
             with self.subTest(expected=expected):
                 self.assertIn(expected, coverage_report._explain(entry))
+
+    def test_entered_function_does_not_hide_zero_hit_body_line(self):
+        raw = {"targets": [{"name": "Demo.app", "files": [{
+            "path": "/source/Demo.swift", "coveredLines": 2,
+            "executableLines": 3, "functions": [{
+                "name": "choose(flag:)", "lineNumber": 1,
+                "executionCount": 1, "coveredLines": 2,
+                "executableLines": 3,
+            }],
+        }]}]}
+        with patch.object(coverage_report, "load_report", return_value=raw), \
+             patch.object(coverage_report, "line_hits",
+                          return_value={1: "1", 2: "1", 3: "0"}), \
+             patch.object(coverage_report, "_read_source",
+                          return_value=["func choose() {", "if flag {", "work()"]):
+            result = coverage_report.gaps(Path("bundle.xcresult"))
+        self.assertEqual(result["gateableUncoveredLineCount"], 1)
+        self.assertEqual(result["uncoveredLines"][0]["line"], 3)
+
+    def test_app_extensions_are_product_targets(self):
+        self.assertFalse(coverage_report._is_test_target("Widget.appex"))
+        self.assertTrue(coverage_report._is_test_target("WidgetTests.xctest"))
 
 
 class ArchiveParsing(unittest.TestCase):
@@ -334,6 +363,167 @@ class DurationParsing(unittest.TestCase):
         self.assertAlmostEqual(test_results._parse_duration("2m"), 120.0)
         self.assertIsNone(test_results._parse_duration(None))
         self.assertIsNone(test_results._parse_duration("unknown"))
+
+
+class ResultEvidence(unittest.TestCase):
+    def test_nested_repetition_and_numeric_duration_are_preserved(self):
+        case = {
+            "nodeType": "Test Case", "name": "testFoo()",
+            "nodeIdentifier": "Demo/testFoo()", "result": "Passed",
+            "duration": "1m 30s", "durationInSeconds": 90,
+            "children": [{"nodeType": "Device", "name": "Device A",
+                          "children": [
+                              {"nodeType": "Repetition", "result": "Failed"},
+                              {"nodeType": "Repetition", "result": "Passed"},
+                          ]}],
+        }
+        with patch.object(test_results, "xcresulttool_json",
+                          return_value={"testNodes": [case]}):
+            parsed = test_results.tests(Path("bundle.xcresult"))
+            hidden = test_results.hidden_flakes(Path("bundle.xcresult"))
+        self.assertEqual(parsed["runCount"], 2)
+        self.assertEqual(parsed["durationProfile"]["totalSeconds"], 90)
+        self.assertEqual(parsed["cases"][0]["repetitions"][0]["device"],
+                         "Device A")
+        self.assertEqual(len(hidden), 1)
+
+    def test_cancelled_empty_run_is_not_clean(self):
+        with patch.object(test_results, "failures", return_value={"failures": []}), \
+             patch.object(test_results, "availability",
+                          return_value={"hasDiagnostics": True,
+                                        "hasTestResults": True}), \
+             patch.object(test_results, "hidden_flakes", return_value=[]), \
+             patch.object(test_results, "summary", return_value={
+                 "result": "Failed", "counts": {"testRuns": 0}}), \
+             patch.object(test_results, "diagnostics", return_value={
+                 "available": True, "infrastructureSignals": ["cancelled"]}):
+            triage = test_results.triage(Path("bundle.xcresult"))
+        self.assertFalse(triage["cleanGreen"])
+        self.assertEqual(triage["runState"], "incomplete-or-unknown")
+
+    def test_skipped_case_with_failed_repetition_is_not_called_hidden_pass(self):
+        case = {"nodeType": "Test Case", "name": "testSkip()",
+                "result": "Skipped", "children": [
+                    {"nodeType": "Repetition", "result": "Failed"}]}
+        with patch.object(test_results, "xcresulttool_json",
+                          return_value={"testNodes": [case]}):
+            self.assertEqual(test_results.hidden_flakes(Path("bundle.xcresult")), [])
+
+    def test_assertion_evidence_beats_uncorrelated_runner_signal(self):
+        failures = {"failures": [{
+            "identifier": "Demo/testFoo()", "identifierURL": "test://foo",
+            "failureText": "XCTAssertEqual failed: testmanagerd flag mismatch",
+            "sourceLocation": {"file": "ProductTests.swift", "line": 42,
+                               "synthetic": False},
+            "repetitions": [{"result": "Failed"}, {"result": "Failed"}],
+        }]}
+        with patch.object(test_results, "failures", return_value=failures), \
+             patch.object(test_results, "availability",
+                          return_value={"hasDiagnostics": True,
+                                        "hasTestResults": True}), \
+             patch.object(test_results, "hidden_flakes", return_value=[]), \
+             patch.object(test_results, "summary", return_value={
+                 "result": "Failed", "counts": {"testRuns": 2}}), \
+             patch.object(test_results, "diagnostics", return_value={
+                 "available": True,
+                 "infrastructureSignals": [{"file": "other/scheduling.log"}]}):
+            item = test_results.triage(Path("bundle.xcresult"))["classified"][0]
+        self.assertEqual(item["verdict"], "deterministic")
+
+    def test_activities_do_not_choose_a_healthy_runs_teardown_as_the_stall(self):
+        raw = {"testRuns": [
+            {"name": "failed-device", "result": "Failed", "activities": [{
+                "title": "Wait for app idle", "isAssociatedWithFailure": True}]},
+            {"name": "healthy-device", "result": "Passed", "activities": [{
+                "title": "Tear Down"}]},
+        ]}
+        with patch.object(test_results, "xcresulttool_json", return_value=raw):
+            result = test_results.activities(Path("bundle.xcresult"), "test://foo")
+        self.assertIsNone(result["lastStep"])
+        self.assertEqual(result["possibleStalls"], [{
+            "run": "failed-device", "result": "Failed", "step": "Wait for app idle"}])
+
+
+class RunCommandConstruction(unittest.TestCase):
+    def _args(self, **updates):
+        values = dict(workspace=None, project=None, scheme="Demo", plan=None,
+                      xctestrun=None, destination=None, destination_id="UDID",
+                      platform=None, derived_data=None, test_products=None,
+                      extra=None, result_bundle=Path("Run.xcresult"), coverage=False,
+                      only=[], skip=[], repetition=None, iterations=None,
+                      parallel=False, workers=None, language=None, region=None)
+        values.update(updates)
+        return SimpleNamespace(**values)
+
+    def test_build_preserves_coverage(self):
+        argv = run_tests.build_argv(self._args(coverage=True), "build-for-testing")
+        self.assertIn("-enableCodeCoverage", argv)
+
+    def test_standalone_iterations_are_not_dropped(self):
+        argv = run_tests.build_argv(self._args(iterations=10), "test")
+        self.assertEqual(argv[argv.index("-test-iterations") + 1], "10")
+
+    def test_prebuilt_test_products_are_consumed(self):
+        products = Path("/tmp/TestProducts")
+        argv = run_tests.build_argv(self._args(test_products=products),
+                                    "test-without-building")
+        self.assertEqual(argv[argv.index("-testProductsPath") + 1], str(products))
+
+    def test_result_bundle_must_be_readable_not_just_have_info_plist(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            bundle = Path(scratch) / "Run.xcresult"
+            bundle.mkdir()
+            (bundle / "Info.plist").write_text("<plist/>")
+            with patch.object(run_tests.subprocess, "run",
+                              return_value=SimpleNamespace(returncode=1)):
+                self.assertFalse(run_tests.result_bundle_readable(bundle))
+            with patch.object(run_tests.subprocess, "run",
+                              return_value=SimpleNamespace(returncode=0)):
+                self.assertTrue(run_tests.result_bundle_readable(bundle))
+
+    def test_failed_build_cannot_succeed_because_an_artifact_exists(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            out = Path(scratch)
+            artifact = out / "DerivedData" / "Build" / "old.xctestrun"
+            artifact.parent.mkdir(parents=True)
+            artifact.write_text("old")
+            argv = ["run_tests.py", "build", "--scheme", "Demo",
+                    "--destination-id", "UDID", "--out", str(out)]
+            outcome = {"exitStatus": 65, "timedOut": False,
+                       "durationSeconds": 0, "log": str(out / "build.log")}
+            with patch.object(sys, "argv", argv), \
+                 patch.object(run_tests.shutil, "which", return_value="/usr/bin/xcrun"), \
+                 patch.object(run_tests, "execute", return_value=outcome), \
+                 patch.object(run_tests, "toolchain_record", return_value={}), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                status = run_tests.main()
+        self.assertEqual(status, 1)
+
+
+class MatrixEvidence(unittest.TestCase):
+    def test_hidden_retry_failure_makes_a_passed_cell_nonpassing(self):
+        raw = {"result": "Passed", "totalTestCount": 1,
+               "failedTests": 0, "testFailures": [],
+               "devicesAndConfigurations": []}
+        hidden = [{"identifier": "Demo/testFoo()"}]
+        with patch.object(compare_runs, "xcresulttool",
+                          return_value=__import__("json").dumps(raw)), \
+             patch.object(compare_runs, "hidden_flakes", return_value=hidden):
+            cell = compare_runs._cell(Path("bundle.xcresult"))
+        self.assertEqual(cell["effectiveResult"], "PassedWithHiddenFailures")
+        self.assertEqual(cell["hiddenFlakeCount"], 1)
+
+    def test_duplicate_failure_entries_in_one_cell_are_not_cross_cell(self):
+        cell = {"cellKey": "bundle-a", "bundle": "bundle-a", "label": "A",
+                "result": "Failed", "effectiveResult": "Failed",
+                "devices": [], "totalTestCount": 1, "failedTests": 1,
+                "hiddenFlakeCount": 0,
+                "failures": [{"identifier": "Demo/testFoo", "url": None},
+                             {"identifier": "Demo/testFoo", "url": None}]}
+        with patch.object(compare_runs, "_cell", return_value=cell):
+            result = compare_runs.matrix([Path("bundle-a")])
+        self.assertFalse(any(h["pattern"] == "same-test-many-cells"
+                             for h in result["hypotheses"]))
 
 
 class FrameworkDetection(unittest.TestCase):

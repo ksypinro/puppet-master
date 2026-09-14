@@ -5,7 +5,7 @@ compatibility: Requires macOS, full Xcode and Python 3.9+, plus permission to in
 license: MIT
 metadata:
   author: Kazi Samin Yeaser
-  version: "1.3.0"
+  version: "1.4.0"
   repository: https://github.com/ksypinro/puppet-master
   short-description: Investigate native iOS app memory from heap snapshots
 ---

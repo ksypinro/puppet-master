@@ -1,11 +1,10 @@
 ---
 name: ios-test-engineer
-description: Run iOS and Swift tests from the command line and turn the result bundle into trustworthy evidence. Use to execute XCTest, Swift Testing or XCUITest suites, select tests or test plans, read verdicts and failure source locations, classify a failure as deterministic, flaky or infrastructure, detect a test that passed only because a retry was allowed, and report region-aware code coverage. Also use to interpret an existing .xcresult bundle without re-running anything. Do not use for performance regression statistics, which belong to ios-instruments-profiler, or for driving app UI, which belongs to ios-simulator-driver.
+description: Run iOS and Swift tests from the command line and turn the result bundle into bounded evidence. Use to execute XCTest, Swift Testing or XCUITest suites, select tests or test plans, read verdicts and failure source locations, classify failures, detect a reported pass containing failed repetitions, and report conservative line and region coverage. Also use to interpret an existing .xcresult bundle without re-running anything. Do not use for performance regression statistics, which belong to ios-instruments-profiler, or for driving app UI, which belongs to ios-simulator-driver.
 license: MIT
-compatibility: Requires macOS, full Xcode, and Python 3.9+. Simulator lanes are fully supported; physical-device test execution additionally needs signing, Developer Mode and a paired device, and is not verified by this skill's fixtures. Coverage requires the run to have been recorded with -enableCodeCoverage YES.
 metadata:
   author: Kazi Samin Yeaser
-  version: "1.3.0"
+  version: "1.4.0"
   repository: https://github.com/ksypinro/puppet-master
   short-description: Run iOS tests and read the result bundle honestly
 ---
@@ -17,29 +16,35 @@ not the same as a working suite, and a failing run is not the same as a broken
 product. Separate what the bundle recorded from what it implies, and say which
 is which.
 
+Requires macOS, full Xcode, and Python 3.9+. Simulator test execution is the
+qualified lane. Physical-device execution also requires signing, Developer
+Mode, and pairing, and remains unverified by this skill's fixtures. Coverage is
+available only when the build and run were recorded with code coverage enabled.
+
 ## Non-negotiable boundaries
 
-- **A green run is not proof the suite passed.** With `-retry-tests-on-failure`,
+- **A green summary is not proof of a complete clean run.** With `-retry-tests-on-failure`,
   a test that fails then passes makes the run report `result: Passed`,
   `failedTests: 0` and an **empty `testFailures` array**. The only surviving
-  evidence is a `Failed` repetition node inside the test hierarchy. Never report
-  green without running `test_results.py triage`, which finds these.
-- **Never retry a failure you have not classified.** Retrying is legitimate for
-  an infrastructure failure, where the assertion never ran. Retrying a real or
-  flaky failure converts a true signal into a green build. Classify first.
-- **Report which repetition mode produced the verdict.** The same code returns
-  `SUCCEEDED` under `-retry-tests-on-failure` and `FAILED` under
-  `-test-repetition-relaunch-enabled YES`. A verdict without its mode is not a
-  verdict.
+  evidence is a `Failed` repetition node inside the test hierarchy. A cancelled,
+  empty, or partially readable run can also have no recorded failures. Never
+  report green unless `test_results.py triage` returns `cleanGreen: true`.
+- **Never retry a failure you have not classified and correlated.** A diagnostic
+  rerun is legitimate only when infrastructure evidence belongs to the same
+  destination, process, attempt, and time and the assertion did not run. Preserve
+  the original result even when the rerun passes.
+- **Report which repetition mode produced the verdict.** A relaunch run requires
+  a repetition driver such as `--iterations N`; the relaunch flag alone is
+  invalid. Read the run manifest rather than inferring the mode from a bundle.
 - **Two test counts disagree legitimately.** The top-level count counts test
   cases; the per-device row counts test runs. One parameterised Swift Testing
   case contributes 1 and N. Report both, and use the bundle's own `statistics`
   field to reconcile them rather than picking the flattering one.
-- **Do not derive "uncovered lines" by subtracting covered from executable.** On
-  Swift, most of that difference is autoclosures and short-circuited operands on
-  lines that did run — including assertion failure messages, which are uncovered
-  precisely *because the test passed*. Use `coverage_report.py gaps`, which
-  separates dead code from never-evaluated sub-expressions.
+- **Do not derive source gaps by subtracting covered from executable.** Use the
+  coverage archive's direct per-line hit counts. `coverage_report.py gaps`
+  reports zero-hit executable source lines separately from advisory partial
+  function/region observations. Coverage proves execution, never that code is
+  dead, unreachable, or correct.
 - **A non-zero `xcodebuild` status does not mean a test failed.** It also covers
   build failure, signing failure, a runner that never launched, and a watchdog
   kill. Only the bundle distinguishes them; if there is no bundle, that is a run
@@ -61,13 +66,19 @@ Resolve `SKILL_DIR` to this file's directory; paths below are relative to it.
 | `scripts/test_doctor.py` | Discover schemes, which are **shared**, test plans, destinations, toolchain |
 | `scripts/run_tests.py` | Bounded execution with a watchdog and a reproducibility manifest |
 | `scripts/test_results.py` | Read one bundle: `summary` `failures` `tests` **`triage`** `activities` `metrics` `diagnostics` `attachments` `build-results` `availability` |
-| `scripts/coverage_report.py` | `report` `gaps` `changed` `hot` — region-aware, so a gate never fires on an autoclosure |
-| `scripts/compare_runs.py` | `compare` a candidate to a baseline, `merge` bundles, `matrix` attribution across cells |
+| `scripts/coverage_report.py` | `report` `gaps` `changed` `hot` — direct zero-hit lines plus advisory regions |
+| `scripts/compare_runs.py` | `compare` a candidate to a baseline, `merge` bundles, `matrix` correlation hypotheses across cells |
 | `scripts/xctest_selection.py` | Prove an `-only-testing` or `--filter` selection matches real tests **before** running |
 | `scripts/xcresult_util.py` | Shared bundle validation, tool invocation and error type |
 | `scripts/test_selftest.py` | Self-test for the classification logic; runs offline, no Xcode needed |
 
 ## The loop
+
+This skill owns Xcode's **test action and test-result evidence**, not every Xcode
+feature. `--extra` can forward an unmodeled `xcodebuild` flag, but forwarding a
+flag does not mean the skill knows how to validate or interpret that feature.
+Use the routing section for debugging, profiling, UI driving, view inspection,
+and memory analysis.
 
 ### 1. Discover before running anything
 
@@ -124,8 +135,8 @@ python3 "$SKILL_DIR/scripts/run_tests.py" test \
 
 Use `plan` instead of `test` to print the exact command without running it.
 Every run writes `manifest.json` with the toolchain, argv, destination, timings
-and exit status — enough to reproduce it, or to explain why two runs are not
-comparable.
+and exit status. Keep it with the source revision and bundle so a later agent can
+reconstruct the conditions and reject an invalid comparison.
 
 ### 4. Read the result honestly
 
@@ -135,16 +146,15 @@ python3 "$SKILL_DIR/scripts/test_results.py" triage   /abs/run/fast/Run.xcresult
 python3 "$SKILL_DIR/scripts/test_results.py" failures /abs/run/fast/Run.xcresult
 ```
 
-`triage` is the one that must always run. It classifies every failure as
-`deterministic`, `flaky`, `infrastructure` or `unclassified`, states what a retry
-would and would not prove, and separately reports **hidden flakes** — tests the
-run calls passed that failed a repetition.
+`triage` is the one that must always run. It first decides whether the run is
+complete enough to support a verdict, then classifies recorded failures and
+separately reports **hidden flakes** — tests the run calls passed that failed a
+repetition. `incomplete-or-unknown` is not green.
 
-It also exports and reads the diagnostics, so an `infrastructure` verdict rests
-on evidence from `testmanagerd.log` and `scheduling.log` rather than on the
-failure text alone. Confidence drops to `medium` when the text looks like a
-runner failure but the diagnostics do not corroborate it — that combination is
-usually a product failure wearing infrastructure wording.
+It also exports and reads diagnostics. Those signals are bundle-level until
+they are correlated to the same destination, process, attempt, and time as a
+failure. They may strengthen an infrastructure hypothesis, but never override
+a source-located assertion that demonstrably ran.
 
 For an unfamiliar bundle, start with `availability`: a run recorded without
 coverage cannot produce coverage, and knowing that up front avoids an ambiguous
@@ -171,10 +181,11 @@ extraction surface and what each layer is good for.
 Read [references/failure-triage.md](references/failure-triage.md) whenever a run
 is red, a test is suspected flaky, or someone proposes a retry. It carries the
 three-mode protocol, the infrastructure-versus-product decision, and the
-diagnostics evidence that settles it.
+correlation still required when diagnostics suggest a runner failure.
 
-The short version: a single run cannot distinguish a real failure from a flaky
-one. Re-run under `--repetition relaunch` to decide.
+The short version: a single run cannot distinguish a consistently reproducible
+failure from an intermittent one. Re-run with `--repetition relaunch` and
+`--iterations N`, and report only what happened in those observed attempts.
 
 ### 6. Coverage, if asked
 
@@ -183,10 +194,9 @@ python3 "$SKILL_DIR/scripts/coverage_report.py" report /abs/run/fast/Run.xcresul
 python3 "$SKILL_DIR/scripts/coverage_report.py" gaps   /abs/run/fast/Run.xcresult
 ```
 
-`report` excludes test bundles by default — they measure tests testing
-themselves and inflate the headline. `gaps` separates genuinely dead code from
-sub-expressions that never evaluated, and explains each one. Only the dead-code
-count belongs in a gate.
+`report` excludes `.xctest` bundles by default — it does not exclude product
+`.appex` extensions. `gaps` uses direct zero-hit executable source lines for
+gateable evidence and reports partial regions separately as advisory context.
 
 Read [references/coverage.md](references/coverage.md) before building any
 coverage gate or reporting a percentage to a user.
@@ -200,13 +210,14 @@ python3 "$SKILL_DIR/scripts/compare_runs.py" merge   /abs/run/*/Run.xcresult --o
 ```
 
 `compare` gives `introduced` versus `resolved` across test failures, build
-warnings and analyzer issues — a complete PR gate with no history database.
-Gate on `introduced`; also watch `testsExecuted.removed`, because a suite that
-shrinks looks greener while covering less.
+warnings and analyzer issues. It is one component of a PR gate, not the whole
+gate: require `gateReady`, compare manifest provenance, and review any removed
+tests. The coverage `changed` command compares whole-file percentages; it is not
+Git changed-line coverage.
 
-`matrix` answers what a failure count cannot: whether you are looking at
-independent failures, one bug with platform reach, or one unhealthy destination.
-Those need three different responses.
+`matrix` preserves destination identity and hidden retry failures, then offers
+correlation hypotheses. Treat “same test across cells” and “many failures in one
+cell” as leads to verify, not root-cause attribution.
 
 ### 8. Report
 
@@ -233,9 +244,10 @@ Each is reproduced by this skill's own checks, not asserted.
 
 1. **A retried pass looks like a pass.** `result: Passed`, `testFailures: []`,
    and a `Failed` repetition buried in the hierarchy. `triage` surfaces it.
-2. **"Uncovered lines" are usually not code.** `?? []` fallbacks that never
-   fired, short-circuited `||` operands, and assertion messages uncovered
-   because the assertion passed. `coverage_report.py gaps` explains each.
+2. **A partial region is not automatically an uncovered source line.** `?? []`
+   fallbacks, short-circuited operands, and assertion messages can share a line
+   that executed. `coverage_report.py gaps` keeps those observations separate
+   from archive lines whose direct hit count is zero.
 3. **A metric's noise floor decides whether it can gate.** On one real run, CPU
    Instructions Retired had 0.5% relative standard deviation while Memory
    Physical had 245.7% — same test, same run. `test_results.py metrics` reports

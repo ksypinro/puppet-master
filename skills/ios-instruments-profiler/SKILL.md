@@ -5,7 +5,7 @@ license: MIT
 compatibility: Requires macOS and full Xcode: xctrace does not ship with the standalone Command Line Tools. Python 3.9+. Claims about real CPU, GPU, memory pressure, thermal, energy, or power require a connected physical Apple device.
 metadata:
   author: Kazi Samin Yeaser
-  version: "1.3.0"
+  version: "1.4.0"
   repository: https://github.com/ksypinro/puppet-master
   short-description: Plan, record, validate, export, reduce, compare, and explain iOS or iPadOS app p
 ---

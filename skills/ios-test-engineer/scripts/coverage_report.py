@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Region-aware code coverage from an .xcresult bundle.
+"""Conservative code coverage from an .xcresult bundle.
 
     report   <bundle>                    per-target and per-file coverage
     gaps     <bundle> [--file NAME]      what is uncovered, and what it really is
@@ -29,8 +29,9 @@ compiler-synthesised region sharing a line with covered code:
              so it is uncovered precisely BECAUSE the test passed
 
 Telling a developer to "cover line 27" asks them to break their own assertion.
-So this tool reports the region name and its enclosing line's hit count, and
-separates genuinely dead lines from sub-expressions that merely never fired.
+So this tool reports direct zero-hit source lines separately from partial
+function/region observations. It never calls non-executed code dead or
+unreachable; coverage cannot establish that.
 """
 
 from __future__ import annotations
@@ -59,7 +60,9 @@ SYNTHESISED = re.compile(
 # here -- the function-level records already give region granularity.
 ARCHIVE_LINE = re.compile(r"^\s*(\d+):\s+(\*|\d+)", re.M)
 
-TEST_BUNDLE = re.compile(r"\.(xctest|appex)$|Tests?\.xctest$")
+# Product extensions (`.appex`) are application code, not test bundles. Excluding
+# them silently hides widgets, intents and share extensions from the headline.
+TEST_BUNDLE = re.compile(r"\.xctest$|Tests?\.xctest$", re.I)
 
 
 class NoCoverage(ToolError):
@@ -87,10 +90,7 @@ def load_report(bundle: Path) -> Dict[str, Any]:
 
 def line_hits(bundle: Path, source: str) -> Dict[int, str]:
     """Per-line hit counts. '*' means the line is not executable."""
-    try:
-        out = xccov(["view", "--archive", "--file", source, str(bundle)])
-    except ToolError:
-        return {}
+    out = xccov(["view", "--archive", "--file", source, str(bundle)])
     return {int(m.group(1)): m.group(2)
             for m in ARCHIVE_LINE.finditer(out)}
 
@@ -154,7 +154,7 @@ def gaps(bundle: Path, only_file: Optional[str] = None,
          include_tests: bool = False) -> Dict[str, Any]:
     raw = load_report(bundle)
 
-    dead: List[Dict[str, Any]] = []
+    uncovered: List[Dict[str, Any]] = []
     regions: List[Dict[str, Any]] = []
 
     for t in raw.get("targets", []):
@@ -170,6 +170,28 @@ def gaps(bundle: Path, only_file: Optional[str] = None,
             hits = line_hits(bundle, path)
             src = _read_source(path)
 
+            # A raw archive hit count of zero is direct evidence that an
+            # executable source line did not run. Use every such line; looking
+            # only at a partially covered function's entry line misses
+            # unexecuted branches in functions that were entered.
+            for n, count in sorted(hits.items()):
+                if count != "0":
+                    continue
+                uncovered.append({
+                    "target": t.get("name"),
+                    "file": os.path.basename(path),
+                    "path": path,
+                    "line": n,
+                    "source": (src[n - 1].strip()
+                               if src and n <= len(src) else None),
+                    "lineHits": 0,
+                    "verdict": "executable source line not executed",
+                    "explanation": ("The coverage archive records zero hits for "
+                                    "this executable source line. This is a test "
+                                    "coverage gap; it does not prove the code is "
+                                    "dead or unreachable."),
+                })
+
             for fn in f.get("functions", []) or []:
                 if fn.get("coveredLines", 0) >= fn.get("executableLines", 0):
                     continue
@@ -177,8 +199,8 @@ def gaps(bundle: Path, only_file: Optional[str] = None,
                 enclosing = hits.get(n, "?")
                 name = fn.get("name", "")
                 synthetic = bool(SYNTHESISED.search(name))
-                # A line whose own hit count is > 0 cannot be dead code, no
-                # matter what the region-level count says.
+                # A covered entry line says only that the function was entered;
+                # direct zero-hit lines above carry the gateable evidence.
                 line_ran = enclosing not in ("*", "0", "?") and enclosing.isdigit() \
                     and int(enclosing) > 0
 
@@ -201,22 +223,20 @@ def gaps(bundle: Path, only_file: Optional[str] = None,
                     entry["verdict"] = "sub-expression never evaluated"
                     entry["explanation"] = _explain(entry)
                     regions.append(entry)
-                else:
-                    entry["verdict"] = "never executed"
-                    entry["explanation"] = (
-                        "This code genuinely never ran. It is the real "
-                        "coverage gap -- write a test that reaches it.")
-                    dead.append(entry)
 
     return {
-        "deadCount": len(dead),
+        # Kept as a compatibility alias; the name was too strong. Zero hits
+        # prove non-execution during this run, not that source is dead.
+        "deadCount": len(uncovered),
+        "gateableUncoveredLineCount": len(uncovered),
         "regionCount": len(regions),
-        # Only this number belongs in a coverage gate.
-        "deadLines": dead,
+        "deadLines": uncovered,
+        "uncoveredLines": uncovered,
         "neverEvaluatedRegions": regions,
-        "note": ("`deadLines` is real untested code. `neverEvaluatedRegions` are "
-                 "sub-expressions on lines that DID run -- gating on them "
-                 "produces false alarms."),
+        "note": ("`uncoveredLines` contains executable source lines with a direct "
+                 "zero hit count. It is gateable coverage evidence, but does not "
+                 "prove those lines are dead. `neverEvaluatedRegions` are partial "
+                 "function/region observations and are advisory."),
     }
 
 
@@ -371,7 +391,9 @@ def changed(bundle: Path, base: Path, include_tests: bool = False,
         "removed": removed,
         "pathNormalisation": {"strategy": strategy, "stripped": stripped},
         "warnings": warnings,
-        "note": notes[strategy],
+        "note": (notes[strategy] + " This compares whole-file coverage "
+                 "percentages; it does not intersect coverage with Git diff "
+                 "hunks and must not be described as changed-line coverage."),
     }
 
 
@@ -434,22 +456,22 @@ def _render_report(d: Dict[str, Any]) -> None:
 
 
 def _render_gaps(d: Dict[str, Any]) -> None:
-    print(f"\n{d['deadCount']} genuinely uncovered  ·  "
+    print(f"\n{d['gateableUncoveredLineCount']} zero-hit executable line(s)  ·  "
           f"{d['regionCount']} sub-expression(s) that never evaluated\n")
 
-    if d["deadLines"]:
-        print("REAL COVERAGE GAPS — write tests for these")
+    if d["uncoveredLines"]:
+        print("DIRECTLY OBSERVED COVERAGE GAPS")
         print("=" * 74)
-        for e in d["deadLines"]:
+        for e in d["uncoveredLines"]:
             print(f"\n  {e['file']}:{e['line']}   [{e['target']}]")
             if e["source"]:
                 print(f"    {e['source'][:96]}")
-            print(f"    region {e['region']}")
+            print(f"    line hits {e['lineHits']}")
             print(f"    → {e['explanation']}")
         print()
 
     if d["neverEvaluatedRegions"]:
-        print("NOT REAL GAPS — sub-expressions on lines that did run")
+        print("ADVISORY PARTIAL-REGION OBSERVATIONS")
         print("=" * 74)
         for e in d["neverEvaluatedRegions"]:
             print(f"\n  {e['file']}:{e['line']}   [{e['target']}]")

@@ -136,6 +136,9 @@ def build_argv(args, action: str) -> List[str]:
     if args.derived_data:
         argv += ["-derivedDataPath", str(args.derived_data)]
 
+    if args.coverage:
+        argv += ["-enableCodeCoverage", "YES"]
+
     if action == "build-for-testing":
         if args.test_products:
             argv += ["-testProductsPath", str(args.test_products)]
@@ -143,8 +146,8 @@ def build_argv(args, action: str) -> List[str]:
 
     argv += ["-resultBundlePath", str(args.result_bundle)]
 
-    if args.coverage:
-        argv += ["-enableCodeCoverage", "YES"]
+    if args.test_products:
+        argv += ["-testProductsPath", str(args.test_products)]
 
     for t in args.only or []:
         argv += [f"-only-testing:{t}"]
@@ -153,10 +156,8 @@ def build_argv(args, action: str) -> List[str]:
 
     if args.repetition:
         argv += REPETITION_MODES[args.repetition]["flags"]
-        if args.iterations and args.repetition != "retry":
-            argv += ["-test-iterations", str(args.iterations)]
-        elif args.iterations:
-            argv += ["-test-iterations", str(args.iterations)]
+    if args.iterations:
+        argv += ["-test-iterations", str(args.iterations)]
 
     if args.parallel:
         argv += ["-parallel-testing-enabled", "YES"]
@@ -259,6 +260,21 @@ def prepare_out(out: Path, force: bool) -> Path:
     return out
 
 
+def result_bundle_readable(bundle: Path) -> bool:
+    """A bundle shell with Info.plist is not enough; prove xcresulttool reads it."""
+    if not bundle.is_dir() or not (bundle / "Info.plist").exists():
+        return False
+    try:
+        proc = subprocess.run(
+            ["xcrun", "xcresulttool", "get", "content-availability",
+             "--path", str(bundle), "--format", "json"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=60, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return proc.returncode == 0
+
+
 # --------------------------------------------------------------------------
 # main
 # --------------------------------------------------------------------------
@@ -308,18 +324,28 @@ def main() -> int:
 
     args = p.parse_args()
 
+    if args.iterations is not None and args.iterations < 1:
+        p.error("--iterations must be at least 1")
+    if args.repetition == "relaunch" and not args.iterations:
+        p.error("--repetition relaunch requires --iterations N")
+    if args.workers is not None and not args.parallel:
+        p.error("--workers requires --parallel")
+    if args.workers is not None and args.workers < 1:
+        p.error("--workers must be at least 1")
+
     if not shutil.which("xcrun"):
         print("error: requires macOS with full Xcode", file=sys.stderr)
         return 2
 
     action = {"build": "build-for-testing", "test": "test-without-building"
-              if args.xctestrun else "test", "plan": None}[args.action]
+              if (args.xctestrun or args.test_products) else "test", "plan": None}[args.action]
 
     try:
         if args.action == "plan":
             args.result_bundle = Path(args.out).resolve() / "Run.xcresult"
-            probe = "build-for-testing" if not args.scheme or args.xctestrun else "test"
-            argv = build_argv(args, probe if not args.xctestrun else "test-without-building")
+            planned_action = ("test-without-building"
+                              if (args.xctestrun or args.test_products) else "test")
+            argv = build_argv(args, planned_action)
             print("\n" + _pretty(argv) + "\n")
             if args.repetition:
                 print(f"  repetition mode `{args.repetition}`:")
@@ -337,7 +363,19 @@ def main() -> int:
         return 2
 
     print(f"\n$ {' '.join(shlex.quote(a) for a in argv)}\n")
-    result = execute(argv, out_dir, args.timeout, args.action)
+    try:
+        result = execute(argv, out_dir, args.timeout, args.action)
+    except OSError as exc:
+        # Preserve a manifest even when xcodebuild could not be spawned.
+        result = {
+            "argv": argv,
+            "command": " ".join(shlex.quote(a) for a in argv),
+            "exitStatus": 127,
+            "timedOut": False,
+            "durationSeconds": 0,
+            "log": str(out_dir / f"{args.action}.log"),
+            "launchError": str(exc),
+        }
 
     manifest: Dict[str, Any] = {
         "schema": "ios-test-engineer/run/1",
@@ -360,16 +398,20 @@ def main() -> int:
     }
 
     if args.action == "build":
-        found = sorted(glob.glob(str(out_dir / "**" / "*.xctestrun"), recursive=True))
+        search_root = (args.test_products or args.derived_data or out_dir).expanduser().resolve()
+        found = sorted(glob.glob(str(search_root / "**" / "*.xctestrun"), recursive=True))
         manifest["xctestrunFiles"] = found
+        manifest["xctestrunSearchRoot"] = str(search_root)
     else:
         # A killed or crashed run can leave a bundle DIRECTORY with no
         # Info.plist. That is an unusable shell, not evidence -- do not point
         # the caller at it as though it were readable.
-        complete = (args.result_bundle / "Info.plist").exists()
-        manifest["resultBundle"] = str(args.result_bundle) if complete else None
+        has_info = (args.result_bundle / "Info.plist").exists()
+        readable = result_bundle_readable(args.result_bundle) if has_info else False
+        manifest["resultBundle"] = str(args.result_bundle) if readable else None
         manifest["resultBundleIncomplete"] = (
-            args.result_bundle.exists() and not complete)
+            args.result_bundle.exists() and not has_info)
+        manifest["resultBundleUnreadable"] = has_info and not readable
 
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
@@ -382,7 +424,9 @@ def main() -> int:
     if args.action == "build":
         for f in manifest.get("xctestrunFiles", []):
             print(f"xctestrun {f}")
-        return 0 if manifest.get("xctestrunFiles") else 1
+        return 0 if (result["exitStatus"] == 0 and
+                     not result["timedOut"] and
+                     manifest.get("xctestrunFiles")) else 1
 
     if manifest["resultBundle"]:
         print(f"bundle   {manifest['resultBundle']}")
@@ -395,6 +439,10 @@ def main() -> int:
               f"Info.plist), so it cannot be read:\n  {args.result_bundle}")
         print("This is a run failure, not a test failure. Read the log; do not "
               "report a test verdict from this run.")
+    elif manifest.get("resultBundleUnreadable"):
+        print(f"\nThe result bundle has Info.plist but xcresulttool cannot read it:\n"
+              f"  {args.result_bundle}")
+        print("Treat it as a run failure, not test evidence.")
     else:
         print("\nNo result bundle was produced. Read the log before concluding "
               "anything about the tests -- this is a run failure, not a test "
@@ -402,7 +450,9 @@ def main() -> int:
 
     # A non-zero xcodebuild status means tests failed OR the run failed. Only
     # the bundle can tell those apart, so the caller must triage.
-    return 0 if result["exitStatus"] == 0 else 1
+    return 0 if (result["exitStatus"] == 0 and
+                 not result["timedOut"] and
+                 manifest.get("resultBundle")) else 1
 
 
 if __name__ == "__main__":

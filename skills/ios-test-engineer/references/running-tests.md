@@ -191,7 +191,9 @@ afterwards. If coverage might be asked for, enable it up front.
 
 ## Device lanes
 
-Simulator lanes are fully supported by this skill and exercised by its fixtures.
+Simulator execution is the skill's qualified lane. Keep the fixture/toolchain
+identity with any claim because support is not evidence that every Xcode,
+runtime, project topology, and test-plan feature has been exercised.
 Physical device execution additionally requires:
 
 - signing for both the app and the test target, plus a runner app for UI tests;

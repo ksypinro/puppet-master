@@ -36,15 +36,18 @@ python3 scripts/coverage_report.py report /abs/Run.xcresult
 python3 scripts/coverage_report.py gaps   /abs/Run.xcresult
 ```
 
-`gaps` splits the difference into two lists:
+`gaps` reports two different evidence classes:
 
-- **`deadLines`** — code that genuinely never ran. This is the real gap, and the
-  only number that belongs in a gate.
-- **`neverEvaluatedRegions`** — sub-expressions on lines that did run, each with
-  an explanation of what it is and what would reach it.
+- **`uncoveredLines`** — executable source lines whose coverage archive hit
+  count is directly zero. These can support a coverage gate, but do not prove
+  that the source is dead or unreachable. `deadLines` remains only as a
+  compatibility alias.
+- **`neverEvaluatedRegions`** — partial function/region observations on an entry
+  line that did run. These are advisory because a function entry does not map
+  every uncovered branch or column range.
 
 ```
-0 genuinely uncovered  ·  4 sub-expression(s) that never evaluated
+0 zero-hit executable lines  ·  4 advisory region observations
 
 NoteIndex.swift:47   [DemoApp.app]
   index[key] = Array(Set(index[key] ?? [])).sorted()
@@ -68,8 +71,9 @@ arguments, thunks, protocol witnesses).
 | Function | `functions[]` per file | **the truthful gap analysis**, plus `executionCount` |
 | Line | `xccov --archive --file` | per-line hit counts and column-range regions |
 
-The function layer is the one that makes gaps correct. It is also where
-`executionCount` lives.
+The archive line layer supplies the gateable zero-hit evidence. The function
+layer adds names and `executionCount`, but a function's covered entry line does
+not establish coverage of later branches.
 
 ## Exclude test targets from the headline
 
@@ -79,15 +83,16 @@ themselves, at or near 100%, and inflates any aggregate that includes it.
 coverage** separately. Pass `--include-tests` only when you specifically want
 them.
 
-## Gate on changed lines, not the repository
+## Compare file coverage between runs
 
 ```sh
 python3 scripts/coverage_report.py changed /abs/pr.xcresult --base /abs/main.xcresult
 ```
 
-A repository-wide percentage is gamed by unrelated files: add a well-covered
-module and the number rises while the PR's own code stays untested. Coverage of
-what the change touched cannot be gamed that way.
+This command compares whole-file percentages between two bundles. It does not
+intersect coverage with Git diff hunks and must not be described as changed-line
+coverage. For a changed-line gate, obtain the changed line ranges from source
+control and intersect them with the archive's per-line hit counts.
 
 `xcrun xccov diff --json before.xcresult after.xcresult` is the native
 equivalent.
@@ -132,8 +137,9 @@ Say four things:
 
 1. **Product coverage**, with test targets excluded, and say that you excluded
    them.
-2. **Real gaps** — the `deadLines` count, not the arithmetic difference.
-3. **What the remaining difference is**, briefly: "the other 4 are `??`
-   fallbacks and assertion messages, which are not reachable by writing tests."
+2. **Direct zero-hit gaps** — the `uncoveredLines` count, not an arithmetic
+   difference and not a claim that the code is dead.
+3. **Advisory region observations**, briefly. A `??` fallback is reachable with
+   a nil input; an assertion-message autoclosure usually runs only on failure.
 4. **The limits** — coverage measures execution, not correctness. A line
    executed by a test with no assertion counts as covered.

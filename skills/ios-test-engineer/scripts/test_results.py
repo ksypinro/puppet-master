@@ -88,7 +88,8 @@ def summary(bundle: Path) -> Dict[str, Any]:
         passed = dc.get("passedTests", 0)
         failed = dc.get("failedTests", 0)
         skipped = dc.get("skippedTests", 0)
-        run_total += passed + failed + skipped
+        expected = dc.get("expectedFailures", 0)
+        run_total += passed + failed + skipped + expected
         devices.append({
             "name": dev.get("deviceName"),
             "platform": dev.get("platform"),
@@ -99,7 +100,7 @@ def summary(bundle: Path) -> Dict[str, Any]:
             "deviceId": dev.get("deviceId"),
             "configuration": (dc.get("testPlanConfiguration") or {}).get("configurationName"),
             "passed": passed, "failed": failed, "skipped": skipped,
-            "expectedFailures": dc.get("expectedFailures", 0),
+            "expectedFailures": expected,
         })
 
     case_total = raw.get("totalTestCount", 0)
@@ -144,6 +145,40 @@ def _walk(node: Dict[str, Any]):
     for child in node.get("children", []) or []:
         for item in _walk(child):
             yield item
+
+
+def _repetition_rows(root: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Return actual Repetition nodes with their enclosing execution identity."""
+    rows: List[Dict[str, Any]] = []
+
+    def visit(node: Dict[str, Any], context: Dict[str, Any]) -> None:
+        context = dict(context)
+        ntype = node.get("nodeType")
+        if ntype == "Device":
+            context["device"] = node.get("name")
+            context["deviceId"] = node.get("deviceId")
+        elif ntype == "Test Plan Configuration":
+            context["configuration"] = node.get("name")
+        elif ntype == "Arguments":
+            context["arguments"] = node.get("name")
+        if ntype == "Repetition":
+            rows.append({
+                "name": node.get("name"),
+                "result": node.get("result"),
+                "durationSeconds": node.get("durationInSeconds")
+                    if node.get("durationInSeconds") is not None
+                    else _parse_duration(node.get("duration")),
+                "messages": [n.get("name") for n in _walk(node)
+                             if n.get("nodeType") == "Failure Message" or
+                             (n.get("nodeType") == "Test Case Run" and
+                              n.get("result") == "Failed")],
+                **context,
+            })
+        for child in node.get("children", []) or []:
+            visit(child, context)
+
+    visit(root, {})
+    return rows
 
 
 def _source_location(node: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -197,28 +232,40 @@ def _failure_detail(bundle: Path, test_url: str) -> Dict[str, Any]:
     except ToolError as exc:
         return {"detailError": str(exc)}
 
-    location = None
+    locations: List[Dict[str, Any]] = []
     repetitions = []
+    observations = []
     for run in raw.get("testRuns", []) or []:
-        rep = {
+        observation = {
             "name": run.get("name"),
+            "nodeType": run.get("nodeType"),
             "result": run.get("result"),
             "durationSeconds": run.get("durationInSeconds"),
             "messages": [],
         }
         for node in _walk(run):
-            if node is run:
-                continue
+            loc = _source_location(node)
+            if loc and loc not in locations:
+                locations.append(loc)
             if node.get("nodeType") == "Test Case Run" and node.get("result") == "Failed":
-                rep["messages"].append(node.get("name"))
-                loc = _source_location(node)
-                if loc and not loc["synthetic"] and location is None:
-                    location = loc
-        repetitions.append(rep)
+                observation["messages"].append(node.get("name"))
+        observations.append(observation)
+        repetitions.extend(_repetition_rows(run))
 
     return {
-        "sourceLocation": location,
+        "sourceLocation": next((loc for loc in locations if not loc["synthetic"]),
+                               locations[0] if locations else None),
+        "sourceLocations": locations,
+        "sourceLocationAmbiguous": len(locations) > 1,
         "repetitions": repetitions,
+        "runObservations": observations,
+        "testResult": raw.get("testResult"),
+        "tags": raw.get("tags", []),
+        "bugs": raw.get("bugs", []),
+        "arguments": raw.get("arguments", []),
+        "devices": raw.get("devices", []),
+        "testPlanConfigurations": raw.get("testPlanConfigurations", []),
+        "functionName": raw.get("functionName"),
         "hasMediaAttachments": raw.get("hasMediaAttachments"),
         "hasPerformanceMetrics": raw.get("hasPerformanceMetrics"),
         "averageDurationSeconds": raw.get("durationInSeconds"),
@@ -254,12 +301,14 @@ def tests(bundle: Path) -> Dict[str, Any]:
         elif ntype == "Test Suite":
             suite = name
         elif ntype == "Test Case":
-            children = node.get("children", []) or []
-            args = [c for c in children if c.get("nodeType") == "Arguments"]
+            descendants = [c for c in _walk(node) if c is not node]
+            args = [c for c in descendants if c.get("nodeType") == "Arguments"]
+            execution_leaves = [c for c in descendants
+                                if c.get("nodeType") == "Test Case Run"]
             # Repetitions appear here when -test-iterations or
             # -retry-tests-on-failure was used. A Test Case can report Passed
             # while carrying a Failed repetition -- see hidden_flakes().
-            reps = [c for c in children if c.get("nodeType") == "Repetition"]
+            reps = _repetition_rows(node)
             cases.append({
                 "name": name,
                 "suite": suite,
@@ -267,21 +316,17 @@ def tests(bundle: Path) -> Dict[str, Any]:
                 "kind": bundles.get(bundle_name or "", "unknown"),
                 "framework": _framework_of(name),
                 "result": node.get("result"),
+                "details": node.get("details"),
+                "tags": node.get("tags", []),
                 "duration": node.get("duration"),
-                "durationSeconds": _parse_duration(node.get("duration")),
+                "durationSeconds": node.get("durationInSeconds")
+                    if node.get("durationInSeconds") is not None
+                    else _parse_duration(node.get("duration")),
                 "identifier": node.get("nodeIdentifier"),
                 "argumentSets": len(args),
                 "arguments": [a.get("name") for a in args],
-                "repetitions": [
-                    {
-                        "name": r.get("name"),
-                        "result": r.get("result"),
-                        "durationSeconds": _parse_duration(r.get("duration")),
-                        "messages": [m.get("name") for m in (r.get("children") or [])
-                                     if m.get("nodeType") == "Failure Message"],
-                    }
-                    for r in reps
-                ],
+                "repetitions": reps,
+                "executionLeaves": len(execution_leaves),
             })
             return  # Arguments and Repetitions are folded into their case
         for child in node.get("children", []) or []:
@@ -303,8 +348,11 @@ def tests(bundle: Path) -> Dict[str, Any]:
 
     return {
         "caseCount": len(cases),
-        "runCount": sum(max(1, c["argumentSets"]) for c in cases),
+        "runCount": sum(max(1, c["executionLeaves"], len(c["repetitions"]),
+                            c["argumentSets"]) for c in cases),
         "byFramework": by_fw,
+        "frameworkEvidence": ("name-heuristic; xcresult does not reliably identify "
+                              "the source test framework for every case"),
         "bundles": bundles,
         "parameterised": [
             {"name": c["name"], "argumentSets": c["argumentSets"], "arguments": c["arguments"]}
@@ -349,7 +397,8 @@ INFRA_PATTERNS = [
     (r"Lost connection to the (test|debug)", "runner connection lost"),
     (r"failed to (launch|start).*(test runner|runner app)", "runner app would not launch"),
     (r"Unable to (lookup|find) in current state.*Shutdown", "simulator was shut down"),
-    (r"testmanagerd", "test manager error"),
+    (r"(Failed to establish communication with|Lost connection to) testmanagerd",
+     "test manager connection failed"),
     (r"Timed out (waiting|while) .*(launch|connect|install)", "timed out before the test ran"),
     (r"Simulator device failed to (boot|install)", "simulator lifecycle failure"),
     (r"(Unable|Failed) to install", "install failure"),
@@ -470,7 +519,7 @@ def diagnostics(bundle: Path, out_dir: Optional[Path] = None) -> Dict[str, Any]:
     except ToolError as exc:
         return {"available": True, "error": str(exc)}
 
-    files, signals = [], []
+    files, signals, scanned, skipped = [], [], [], []
     for path in sorted(target.rglob("*")):
         if not path.is_file():
             continue
@@ -483,11 +532,15 @@ def diagnostics(bundle: Path, out_dir: Optional[Path] = None) -> Dict[str, Any]:
         if path.name in {n for n, _ in DIAGNOSTIC_FILES} and size < 2_000_000:
             text = path.read_text(errors="replace")
             entry["role"] = next(d for n, d in DIAGNOSTIC_FILES if n == path.name)
+            scanned.append(rel)
             for pattern, meaning in DIAG_SIGNALS:
                 for m in re.finditer(pattern, text, re.I):
                     line = text[max(0, m.start() - 90):m.end() + 90].strip()
                     signals.append({"file": rel, "meaning": meaning,
                                     "excerpt": " ".join(line.split())[:190]})
+        elif path.name in {n for n, _ in DIAGNOSTIC_FILES}:
+            entry["scanSkipped"] = "file is at least 2 MB"
+            skipped.append({"path": rel, "reason": entry["scanSkipped"]})
         files.append(entry)
 
     app_streams = [f for f in files
@@ -500,15 +553,18 @@ def diagnostics(bundle: Path, out_dir: Optional[Path] = None) -> Dict[str, Any]:
         "temporary": out_dir is None,
         "fileCount": len(files),
         "files": files,
+        "scannedControlFiles": scanned,
+        "skippedControlFiles": skipped,
+        "scanCoverage": ("partial" if skipped or not scanned else "scanned-present-files"),
         "infrastructureSignals": signals,
         "appLogStreams": [{"path": f["path"], "bytes": f["bytes"]}
                           for f in app_streams],
         "verdict": ("runner-failure-evidence-found" if signals
                     else "no-runner-failure-evidence"),
-        "note": ("No infrastructure signal here means the runner worked and any "
-                 "failure is product evidence. The app's own stream is where "
-                 "crashes and runtime warnings appear -- read it by PID from "
-                 "the activity tree."
+        "note": ("No recognised infrastructure signal was found in the scanned "
+                 "control-plane logs. This is not proof that the runner worked: "
+                 "unrecognised files, oversized logs, and missing correlation "
+                 "remain unknown."
                  if not signals else
                  "Infrastructure signals found. A retry may be legitimate; "
                  "confirm the specific failure matches one of these."),
@@ -565,7 +621,7 @@ def hidden_flakes(bundle: Path) -> List[Dict[str, Any]]:
     found = []
     for case in tests(bundle)["cases"]:
         reps = case.get("repetitions") or []
-        if not reps or case.get("result") == "Failed":
+        if not reps or case.get("result") != "Passed":
             continue
         failed = [r for r in reps if r.get("result") == "Failed"]
         if not failed:
@@ -591,9 +647,23 @@ def triage(bundle: Path, read_diagnostics: bool = True) -> Dict[str, Any]:
     `infrastructure` verdict rests on evidence from testmanagerd/scheduling
     rather than on pattern-matching the failure text alone.
     """
-    data = failures(bundle)
     avail = availability(bundle)
+    if not avail.get("hasTestResults"):
+        return {
+            "failureCount": 0, "byVerdict": {}, "classified": [],
+            "hiddenFlakes": [], "cleanGreen": False,
+            "runState": "incomplete-or-unknown", "recordedResult": None,
+            "recordedTestRuns": 0,
+            "diagnosticsAvailable": bool(avail.get("hasDiagnostics")),
+            "diagnostics": {"read": False, "verdict": None, "signals": [],
+                            "exportedTo": None, "appLogStreams": []},
+            "retryPolicy": ("No test results were recorded. Treat this as a run "
+                            "failure and do not infer a test verdict."),
+            "evidenceError": avail.get("error") or "bundle has no test results",
+        }
+    data = failures(bundle)
     hidden = hidden_flakes(bundle)
+    run_summary = summary(bundle)
 
     diag: Dict[str, Any] = {"available": False}
     if read_diagnostics and avail.get("hasDiagnostics"):
@@ -610,16 +680,37 @@ def triage(bundle: Path, read_diagnostics: bool = True) -> Dict[str, Any]:
         passed = results.count("Passed")
         failed = results.count("Failed")
 
-        infra = _infra_match(f.get("failureText", ""))
+        failure_text = f.get("failureText", "")
+        infra = _infra_match(failure_text)
+        source = f.get("sourceLocation") or {}
+        assertion_evidence = bool(
+            source and not source.get("synthetic") and
+            re.search(r"XCTAssert|#expect|#require|Expectation failed|assertion failed",
+                      failure_text, re.I))
 
-        if infra:
+        if assertion_evidence:
+            if len(reps) > 1 and failed == len(reps):
+                verdict, confidence = "deterministic", "high"
+                action = ("The assertion failed in every recorded repetition. "
+                          "Do not retry it away.")
+            elif failed and passed:
+                verdict, confidence = "flaky", "high"
+                action = ("The assertion both passed and failed. Preserve the "
+                          "failed attempts; a retried pass is not clean.")
+            else:
+                verdict, confidence = "product-failure", "high"
+                action = ("A source-located assertion ran and failed. Runner-level "
+                          "diagnostics elsewhere in the bundle cannot override it.")
+        elif infra:
             verdict = "infrastructure"
             # The text matched a runner signature. Diagnostics either corroborate
             # that or leave it a hint -- say which.
             if diag_signals:
-                confidence = "high"
-                action = ("Retry is legitimate. The assertion never ran, and the "
-                          "diagnostics corroborate a runner failure.")
+                confidence = "medium"
+                action = ("The failure text and bundle-level diagnostics both "
+                          "suggest infrastructure. Correlate destination, process, "
+                          "attempt and time before retrying; these signals are not "
+                          "yet tied to this individual failure.")
             elif diag.get("available") and not diag.get("error"):
                 confidence = "medium"
                 action = ("The failure text looks like a runner failure, but the "
@@ -667,6 +758,20 @@ def triage(bundle: Path, read_diagnostics: bool = True) -> Dict[str, Any]:
     for h in hidden:
         counts["hidden-flake"] = counts.get("hidden-flake", 0) + 1
 
+    test_count = (run_summary.get("counts") or {}).get("testRuns", 0)
+    complete_pass = (run_summary.get("result") == "Passed" and
+                     bool(avail.get("hasTestResults")) and test_count > 0 and
+                     not diag_signals)
+    clean = complete_pass and not classified and not hidden
+    if clean:
+        run_state = "passed"
+    elif hidden and run_summary.get("result") == "Passed":
+        run_state = "passed-with-hidden-failures"
+    elif run_summary.get("result") == "Failed" and (classified or hidden):
+        run_state = "failed"
+    else:
+        run_state = "incomplete-or-unknown"
+
     return {
         "failureCount": len(classified),
         "byVerdict": counts,
@@ -674,7 +779,10 @@ def triage(bundle: Path, read_diagnostics: bool = True) -> Dict[str, Any]:
         # Reported separately because these do NOT appear in testFailures and
         # the run's own verdict is Passed.
         "hiddenFlakes": hidden,
-        "cleanGreen": not classified and not hidden,
+        "cleanGreen": clean,
+        "runState": run_state,
+        "recordedResult": run_summary.get("result"),
+        "recordedTestRuns": test_count,
         "diagnosticsAvailable": avail.get("hasDiagnostics", False),
         "diagnostics": {
             "read": bool(diag.get("available") and not diag.get("error")),
@@ -684,9 +792,10 @@ def triage(bundle: Path, read_diagnostics: bool = True) -> Dict[str, Any]:
             "appLogStreams": diag.get("appLogStreams", []),
         },
         "retryPolicy": (
-            "Retry ONLY failures classified `infrastructure`. Retrying a "
-            "deterministic or flaky failure converts a real signal into a green "
-            "build and is how regressions reach production."
+            "Do not auto-retry from text or bundle-level diagnostics alone. Retry "
+            "only after infrastructure evidence is correlated to this failure's "
+            "destination, process, attempt and time. Never retry a deterministic, "
+            "flaky, or source-located product failure into green."
         ),
     }
 
@@ -698,31 +807,59 @@ def triage(bundle: Path, read_diagnostics: bool = True) -> Dict[str, Any]:
 def activities(bundle: Path, test_id: str) -> Dict[str, Any]:
     raw = xcresulttool_json(bundle, "get", "test-results", "activities", "--test-id", test_id)
 
-    steps: List[Dict[str, Any]] = []
+    all_steps: List[Dict[str, Any]] = []
 
-    def visit(node, depth=0):
+    def visit(node, destination, depth=0):
         title = node.get("title") or node.get("name") or ""
-        steps.append({
+        attachment_rows = [{
+            "name": a.get("name"),
+            "payloadId": a.get("payloadId") or a.get("payloadUUID"),
+            "uniformTypeIdentifier": a.get("uniformTypeIdentifier"),
+        } for a in node.get("attachments", []) or []]
+        step = {
             "depth": depth,
             "title": title,
             "start": node.get("startTime"),
             "type": node.get("activityType"),
-            "attachments": len(node.get("attachments", []) or []),
-        })
+            "associatedWithFailure": node.get("isAssociatedWithFailure"),
+            "attachments": attachment_rows,
+        }
+        destination.append(step)
+        all_steps.append(step)
         for child in node.get("childActivities", []) or []:
-            visit(child, depth + 1)
+            visit(child, destination, depth + 1)
 
+    runs = []
     for run in raw.get("testRuns", []) or []:
+        run_steps: List[Dict[str, Any]] = []
         for act in run.get("activities", []) or []:
-            visit(act)
+            visit(act, run_steps)
+        failure_steps = [s for s in run_steps if s["associatedWithFailure"]]
+        runs.append({
+            "name": run.get("name"),
+            "result": run.get("result"),
+            "nodeType": run.get("nodeType"),
+            "steps": run_steps,
+            "lastStep": run_steps[-1]["title"] if run_steps else None,
+            "lastFailureAssociatedStep": (failure_steps[-1]["title"]
+                                          if failure_steps else None),
+        })
 
     return {
         "testId": test_id,
-        "stepCount": len(steps),
-        "steps": steps,
-        # A hung UI test's last step names the stall.
-        "lastStep": steps[-1]["title"] if steps else None,
-        "attachmentCount": sum(s["attachments"] for s in steps),
+        "runCount": len(runs),
+        "runs": runs,
+        "stepCount": len(all_steps),
+        # Compatibility view. Never use its final element as a cross-run stall.
+        "steps": all_steps,
+        "lastStep": runs[0]["lastStep"] if len(runs) == 1 else None,
+        "possibleStalls": [{"run": r["name"], "result": r["result"],
+                            "step": r["lastFailureAssociatedStep"] or r["lastStep"]}
+                           for r in runs if r["result"] != "Passed"],
+        "attachmentCount": sum(len(s["attachments"]) for s in all_steps),
+        "note": ("Activities are preserved per run. A final step is only a stall "
+                 "candidate; correlate failure association, timestamps and "
+                 "attachments before assigning cause."),
     }
 
 
@@ -842,6 +979,9 @@ def _render_failures(d: Dict[str, Any]) -> None:
         loc = f.get("sourceLocation")
         if loc:
             print(f"    at {loc['file']}:{loc['line']}")
+            if f.get("sourceLocationAmbiguous"):
+                print(f"    ! {len(f.get('sourceLocations') or [])} source locations "
+                      "were recorded; this is only the first")
         elif f.get("repetitions"):
             print("    no real source location (synthesised only)")
         for line in (f["failureText"] or "").splitlines():
@@ -893,8 +1033,10 @@ def _render_hidden(hidden: List[Dict[str, Any]]) -> None:
             print(f"      {mark} {r['name']}: {r['result']}")
         for m in h["messages"][:2]:
             print(f"    {(m or '').strip()[:110]}")
-        print("    → Do NOT report this as green. It passed only because a retry "
-              "was allowed.")
+        print("    → Do NOT report this as clean. The reported pass contains a "
+              "failed repetition.")
+        print("      Read manifest.json to determine whether retry, iteration, or "
+              "another repetition policy produced it.")
         print("      This test does not appear in `testFailures` and is invisible "
               "to a summary-only reader.")
         print()
@@ -902,7 +1044,8 @@ def _render_hidden(hidden: List[Dict[str, Any]]) -> None:
 
 def _render_triage(d: Dict[str, Any]) -> None:
     if d.get("cleanGreen"):
-        print("\nNo failures, and no test passed only on retry.\n")
+        print("\nComplete passed run: tests executed, no recorded failures, and "
+              "no failed repetitions.\n")
         return
 
     if d.get("hiddenFlakes"):
@@ -910,7 +1053,10 @@ def _render_triage(d: Dict[str, Any]) -> None:
 
     if not d["failureCount"]:
         if not d.get("hiddenFlakes"):
-            print("\nNo failures to triage.\n")
+            print(f"\nNo individual failures were recorded, but the run is "
+                  f"{d.get('runState', 'unknown')}.\n")
+            print(f"  recorded result: {d.get('recordedResult')}   "
+                  f"recorded test runs: {d.get('recordedTestRuns')}\n")
         return
     print(f"\n{d['failureCount']} failure(s) classified")
     print("  " + "  ".join(f"{k}={v}" for k, v in sorted(d["byVerdict"].items())))
