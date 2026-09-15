@@ -24,7 +24,7 @@ jobs:
         # Command Line Tools. Skills must not require anything newer.
         python: ["3.9", "3.13"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v5
         with:
@@ -79,7 +79,7 @@ jobs:
     name: Shell scripts
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Syntax check
         run: bash -n install.sh && bash -n uninstall.sh
@@ -94,7 +94,7 @@ jobs:
     name: Install on macOS
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Capability probe
         # Runners have Xcode but no booted Simulator; the probe must still run
