@@ -150,6 +150,8 @@ Each skill carries an `agents/openai.yaml` with Codex display metadata and invoc
 ```
 
 Cline also reads `.claude/skills/`, so `./install.sh --project` covers Cline and Claude Code with one directory. Manage them from the Skills tab (scale icon, bottom of the Cline panel).
+
+**Routing rules.** Cline decides which skill to load from a short standing hint rather than from the skill descriptions alone, so `install.sh` also copies [`clinerules/`](clinerules/) — into `~/Documents/Cline/Rules/` for a user install, or the project's `.clinerules/` under `--project`. Each file carries a `paths:` glob (the only frontmatter key Cline supports) restricting it to iOS sources, so the rules are inert in a project that has none. They exist because an agent with a debugger available will otherwise reach for raw `po` in LLDB to answer a question about layout, which `po` cannot answer. See [clinerules/README.md](clinerules/README.md).
 </details>
 
 <details>
@@ -200,6 +202,7 @@ puppet-master/
 │   │   ├── scripts/             #   deterministic helpers, stdlib only
 │   │   └── agents/openai.yaml   #   Codex display metadata (other runtimes ignore it)
 │   └── …
+├── clinerules/                  # Cline standing rules — symptom → skill routing
 ├── commands/ios-doctor.md       # Claude Code slash command
 ├── tools/
 │   ├── doctor.py                # capability probe → machine-readable manifest

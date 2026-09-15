@@ -21,6 +21,26 @@ Two things worth knowing:
 
 - **Cline reads `.claude/skills/`.** One project directory serves Claude Code and Cline together — `./install.sh --project` covers both.
 - **Codex has two locations.** `~/.agents/skills/` is current; `$CODEX_HOME/skills` (default `~/.codex/skills`) is where its bundled `skill-installer` writes. `install.sh` targets the former, `uninstall.sh` cleans both.
+- **Cline gets routing rules in addition to skills.** See below.
+
+## Cline routing rules
+
+Skills are loaded on demand, and whether one gets loaded depends on the agent matching the user's phrasing against the skill's `description`. That works well when the user names the problem in the skill's own vocabulary and badly when they do not: asked why a button is not tappable, an agent with a debugger already attached will reach for `po someView` in LLDB — which returns a one-line description that cannot answer the question — rather than loading `ios-view-hierarchy-debugger`.
+
+Cline supports [standing rules](https://docs.cline.bot/features/cline-rules) for exactly this: short Markdown files that sit in context and steer behaviour before a skill is chosen. This repository ships eight of them in [`clinerules/`](../clinerules/) — a routing table plus one per skill.
+
+| Location | Scope |
+|---|---|
+| `~/Documents/Cline/Rules/` | every project on the machine |
+| `<project>/.clinerules/` | that project, committed with it |
+
+`./install.sh` writes the first; `./install.sh --project` writes the second. `--agent cline` limits an install to Cline, and any other `--agent` value skips the rules entirely.
+
+**Frontmatter.** Cline supports exactly one key, `paths:` — an array of globs. A rule activates if any pattern matches any file in the current context. Every rule here is gated on iOS sources (`**/*.swift`, `**/*.m`, `**/*.mm`, `**/*.h`, `**/*.xcodeproj/**`, `**/*.xcworkspace/**`, `**/Package.swift`), so a non-iOS project pays nothing for having them installed. Numeric filename prefixes are a convention for ordering, not a requirement.
+
+**Removal.** Each file carries a provenance marker. `./uninstall.sh` removes only files that still carry it; strip the line and the file is yours, reported and left alone.
+
+**Other runtimes.** Claude Code's equivalent is `CLAUDE.md`, Cursor's is `.cursor/rules/`, Codex's is `AGENTS.md`. These files are Markdown with a frontmatter key only Cline reads, so they can be adapted by hand, but `install.sh` does not write them — a rules file in one of those locations is the user's own, and an installer should not append to it.
 
 ## Bundle formats
 
@@ -28,7 +48,7 @@ Beyond plain skills, this repository ships as a plugin in both ecosystems. The r
 
 ### Claude Code plugin
 
-`.claude-plugin/plugin.json` plus `.claude-plugin/marketplace.json` with `"source": "./"`, the documented [single-plugin-repository pattern](https://code.claude.com/docs/en/plugin-marketplaces). Installing the plugin gets the four skills *and* the `/ios-doctor` command:
+`.claude-plugin/plugin.json` plus `.claude-plugin/marketplace.json` with `"source": "./"`, the documented [single-plugin-repository pattern](https://code.claude.com/docs/en/plugin-marketplaces). Installing the plugin gets every skill *and* the `/ios-doctor` command:
 
 ```
 /plugin marketplace add ksypinro/puppet-master

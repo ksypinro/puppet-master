@@ -13,6 +13,11 @@
 # are plain Markdown plus stdlib-only Python. This script verifies the system
 # dependencies, then links the skill directories into each agent's discovery path.
 #
+# It also copies the Cline routing rules in clinerules/ -- into a project's
+# .clinerules/ under --project, or into ~/Documents/Cline/Rules otherwise. They
+# tell Cline which skill answers which symptom, and are scoped by a `paths:`
+# glob so they are inert outside an iOS project.
+#
 # By default it symlinks, so `git pull` updates every agent at once. Use --copy
 # for a detached snapshot (needed if an agent sandbox cannot follow symlinks).
 
@@ -20,6 +25,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILLS_DIR="$REPO_ROOT/skills"
+RULES_DIR="$REPO_ROOT/clinerules"
 
 MODE="link"          # link | copy
 SCOPE="user"         # user | project
@@ -177,6 +183,59 @@ install_into() {
   fi
 }
 
+# Cline reads standing rules from two places: `.clinerules/` at a project root,
+# and a global rules folder at ~/Documents/Cline/Rules. Both take the same
+# Markdown files.
+#
+# These rules are routing hints -- which skill answers which symptom, and which
+# raw command not to reach for instead. Each carries a `paths:` glob (the only
+# frontmatter key Cline supports) so a rule activates only when an iOS source
+# file is in context, and costs nothing on a project that has none.
+#
+# Always copied, never symlinked. Project rules are committed alongside the
+# project, where a symlink into one developer's clone is useless to everyone
+# else; the global folder is scanned by an editor extension that should not be
+# made to follow links out of it.
+install_rules() {
+  local display="$1" dest="$2" installed=0 skipped=0
+  [[ -d "$RULES_DIR" ]] || return 0
+  mkdir -p "$dest"
+  # NN-name.md only: the directory also holds its own README, which is
+  # documentation for a human reading the repository, not standing context to
+  # push into every Cline request.
+  for rule in "$RULES_DIR"/[0-9][0-9]-*.md; do
+    [[ -f "$rule" ]] || continue
+    local base target
+    base="$(basename "$rule")"
+    target="$dest/$base"
+    if [[ -e "$target" ]] && (( ! FORCE )); then
+      skipped=$((skipped + 1))
+      continue
+    fi
+    cp "$rule" "$target"
+    installed=$((installed + 1))
+  done
+  if (( installed )); then
+    ok "$display — copied $installed rule file(s) into $dest"
+  fi
+  if (( skipped )); then
+    warn "$display — skipped $skipped rule file(s) already present ${DIM}(--force to overwrite)${RESET}"
+  fi
+}
+
+# Where the rules go for the scope being installed. Echoes nothing when there is
+# no destination: --agent naming something other than cline is a request for
+# that agent alone, and user scope only writes the global folder when Cline is
+# actually installed here.
+rules_dest() {
+  [[ -z "$ONLY_AGENT" || "$ONLY_AGENT" == "cline" ]] || return 0
+  if [[ "$SCOPE" == "project" ]]; then
+    printf '%s\n' "$PROJECT_DIR/.clinerules"
+  elif agent_present cline; then
+    printf '%s\n' "$HOME/Documents/Cline/Rules"
+  fi
+}
+
 main() {
   say ""
   say "${BOLD}Puppet Master${RESET} ${DIM}— iOS agent skills installer${RESET}"
@@ -238,11 +297,21 @@ main() {
     exit 0
   fi
 
+  local rules_to
+  rules_to="$(rules_dest)"
+
   if (( LIST_ONLY )); then
+    if [[ -n "$rules_to" && -d "$RULES_DIR" ]]; then
+      say "  ${DIM}would install:${RESET} Cline routing rules → $rules_to"
+    fi
     say ""
     say "${DIM}Nothing was changed. Re-run without --list to install.${RESET}"
     say ""
     exit 0
+  fi
+
+  if [[ -n "$rules_to" ]]; then
+    install_rules "Cline rules" "$rules_to"
   fi
 
   say ""

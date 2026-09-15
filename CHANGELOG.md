@@ -13,6 +13,22 @@ For skills, versioning is interpreted as:
 ## [Unreleased]
 
 ### Added
+- **Cline routing rules (`clinerules/`).** Eight standing rules that tell Cline
+  which skill answers which symptom, and which raw command not to reach for
+  instead. They exist because skill selection depends on the user's phrasing
+  matching a skill `description`: asked why a button is untappable, an agent
+  with a debugger attached reaches for `po someView`, which returns a one-line
+  description and cannot answer the question. A rule sits in context before that
+  choice is made.
+
+  Each file carries a `paths:` glob — the only frontmatter key Cline supports —
+  restricting it to iOS sources, so a project with no Swift, Objective-C or
+  Xcode files never loads them. `install.sh` copies them to
+  `~/Documents/Cline/Rules/`, or to a project's `.clinerules/` under
+  `--project`; `--agent` naming anything but `cline` skips them. `uninstall.sh`
+  removes only files still carrying the provenance marker, so a rule someone has
+  rewritten is reported and left alone. Covered end to end by a new CI step.
+
 - **`ios-build-engineer` — the produce-and-run skill.** Closes the build rows the
   roadmap has carried since v1.0.0: toolchain and lane readiness, scheme and
   destination discovery, resolved build settings and product paths, builds for

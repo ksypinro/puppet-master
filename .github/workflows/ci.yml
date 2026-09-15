@@ -129,3 +129,26 @@ jobs:
           test ! -e "$HOME/.claude/skills/ios-simulator-driver" \
             || { echo "uninstall left files behind"; exit 1; }
           echo "uninstall verified"
+
+      - name: Cline rules round-trip
+        run: |
+          # Project scope, so nothing is written outside the runner's workspace.
+          # --agent cline keeps the assertions to what this step is about.
+          proj="$(mktemp -d)"
+          ./install.sh --project "$proj" --agent cline --copy
+          expected="$(ls clinerules/[0-9][0-9]-*.md | wc -l | tr -d ' ')"
+          actual="$(ls "$proj/.clinerules" | wc -l | tr -d ' ')"
+          test "$expected" = "$actual" \
+            || { echo "expected $expected rule(s), found $actual"; ls "$proj/.clinerules"; exit 1; }
+          # The directory's own README documents the rules; it is not one.
+          test ! -e "$proj/.clinerules/README.md" \
+            || { echo "README.md was installed as a rule"; exit 1; }
+          # A file the user has taken over must survive uninstall.
+          echo "# mine now" > "$proj/.clinerules/13-instruments.md"
+          ./uninstall.sh --project "$proj" --yes
+          test -f "$proj/.clinerules/13-instruments.md" \
+            || { echo "uninstall removed a file with no provenance marker"; exit 1; }
+          remaining="$(ls "$proj/.clinerules" | wc -l | tr -d ' ')"
+          test "$remaining" = "1" \
+            || { echo "uninstall left $remaining file(s), expected 1"; ls "$proj/.clinerules"; exit 1; }
+          echo "Cline rules round-trip verified"

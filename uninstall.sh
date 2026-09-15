@@ -12,11 +12,17 @@
 # when the entry is a symlink into this repository or a directory whose SKILL.md
 # carries this repository's metadata. A skill of the same name from another
 # source is reported and left alone.
+#
+# The same rule governs the Cline routing rules in .clinerules/ and
+# ~/Documents/Cline/Rules: a rule file is removed only if it still carries the
+# provenance marker this repository writes into it. A file someone has taken
+# over and stripped that line from is theirs, and is left alone.
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILLS_DIR="$REPO_ROOT/skills"
+RULES_DIR="$REPO_ROOT/clinerules"
 MARKER="github.com/ksypinro/puppet-master"
 
 SCOPE="user"; PROJECT_DIR=""; ONLY_AGENT=""; LIST_ONLY=0; ASSUME_YES=0
@@ -101,6 +107,28 @@ for entry in "${AGENTS[@]}"; do
   done
 done
 
+# Rule files, wherever install.sh could have put them for this scope.
+if [[ -z "$ONLY_AGENT" || "$ONLY_AGENT" == "cline" ]] && [[ -d "$RULES_DIR" ]]; then
+  if [[ "$SCOPE" == "project" ]]; then
+    rules_dest="$(cd "$PROJECT_DIR" && pwd)/.clinerules"
+  else
+    rules_dest="$HOME/Documents/Cline/Rules"
+  fi
+  if [[ -d "$rules_dest" ]]; then
+    for rule in "$RULES_DIR"/[0-9][0-9]-*.md; do
+      [[ -f "$rule" ]] || continue
+      name="$(basename "$rule")"
+      target="$rules_dest/$name"
+      [[ -f "$target" ]] || continue
+      if grep -q "$MARKER" "$target" 2>/dev/null; then
+        PLAN_PATHS+=("$target"); PLAN_LABELS+=("Cline rule: $name")
+      else
+        FOREIGN+=("Cline rule: $name  ${DIM}($target — marker removed, treated as yours)${RESET}")
+      fi
+    done
+  fi
+fi
+
 say ""
 say "${BOLD}Puppet Master${RESET} ${DIM}— uninstall${RESET}"
 say ""
@@ -112,7 +140,7 @@ if ((${#PLAN_PATHS[@]} == 0)); then
   exit 0
 fi
 
-say "${BOLD}Will remove ${#PLAN_PATHS[@]} installed skill(s)${RESET}"
+say "${BOLD}Will remove ${#PLAN_PATHS[@]} installed item(s)${RESET}"
 for i in "${!PLAN_PATHS[@]}"; do
   say "  ${PLAN_LABELS[$i]}"
   say "    ${DIM}${PLAN_PATHS[$i]}${RESET}"
