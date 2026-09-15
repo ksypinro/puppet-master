@@ -12,6 +12,25 @@ For skills, versioning is interpreted as:
 
 ## [Unreleased]
 
+### Added
+- **`ios-build-engineer` — the produce-and-run skill.** Closes the build rows the
+  roadmap has carried since v1.0.0: toolchain and lane readiness, scheme and
+  destination discovery, resolved build settings and product paths, builds for
+  Simulator and device, structured build diagnostics, archive and export,
+  code-signing diagnosis, XCFramework packaging, artifact manifests, and the
+  composite `run` action `xcodebuild` does not ship.
+
+  Two findings from the research pass shape it. **SwiftPM cannot cross-compile to
+  iOS**: `swift build --triple arm64-apple-ios17.0` is accepted, exits 0, prints
+  `Build complete!` and emits macOS objects, so `package_products.py
+  verify-platform` reads the Mach-O load command rather than trusting the exit
+  status. And **launching is not running**: `simctl launch` and `devicectl
+  process launch` both exit 0 and print a process id for an app that already
+  crashed, so no run reports success without a `launchctl` liveness probe.
+
+  Physical-device install and launch are implemented and explicitly marked
+  unverified — the study machine had no hardware and no provisioning profiles.
+
 ### Changed
 - **`ios-test-engineer` evidence claims tightened.** `compare` no longer
   describes itself as a complete PR gate — it is one input to one, reports
@@ -26,6 +45,8 @@ For skills, versioning is interpreted as:
 - Triage now requires a *correlated* infrastructure failure before a retry is
   justified, and reads the repetition mode from the run manifest rather than the
   bundle.
+- README now documents all seven skills. It described five, omitting
+  `ios-memory-debugger` (shipped in v1.2.0) alongside the new build skill.
 
 ### Added
 - **`ios-memory-debugger` retained-size analysis.** A capability survey of the

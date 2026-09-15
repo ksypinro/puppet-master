@@ -1,7 +1,7 @@
 {
   "name": "puppet-master",
   "version": "1.4.0",
-  "description": "Four composable Agent Skills for driving, inspecting, debugging, and profiling iOS apps on Simulator and device: UI automation, native view hierarchy evidence, LLDB code-state root-cause analysis, and Instruments performance measurement.",
+  "description": "Seven composable Agent Skills for building, running, driving, inspecting, debugging, and profiling iOS apps on Simulator and device: CLI build, signing and verified launch, UI automation, native view hierarchy evidence, LLDB code-state root-cause analysis, memory graph analysis, test execution, and Instruments performance measurement.",
   "author": {
     "name": "Kazi Samin Yeaser",
     "url": "https://github.com/ksypinro"
@@ -10,8 +10,22 @@
   "repository": "https://github.com/ksypinro/puppet-master",
   "license": "MIT",
   "keywords": [
-    "ios", "simulator", "xcode", "lldb", "instruments", "xctrace",
-    "ui-automation", "view-hierarchy", "accessibility", "performance",
-    "debugging", "agent-skills"
+    "ios",
+    "simulator",
+    "xcode",
+    "lldb",
+    "instruments",
+    "xctrace",
+    "ui-automation",
+    "view-hierarchy",
+    "accessibility",
+    "performance",
+    "debugging",
+    "agent-skills",
+    "build",
+    "codesigning",
+    "xcodebuild",
+    "testing",
+    "memory"
   ]
 }

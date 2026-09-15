@@ -8,7 +8,7 @@ This is a statement of direction, not a schedule. Nothing here has a date.
 
 ## Where the toolkit stands
 
-Measured against the fifteen requirements in the report's capability map: **eleven fully covered, four absent** as of v1.3.0. `ios-test-engineer` closed the two test rows in v1.1.0; `ios-memory-debugger` closed the memory row in v1.2.0–1.3.0.
+Measured against the fifteen requirements in the report's capability map: **thirteen fully covered, one partial, one absent** as of v1.4.0. `ios-test-engineer` closed the two test rows in v1.1.0; `ios-memory-debugger` closed the memory row in v1.2.0–1.3.0; `ios-build-engineer` closed both build rows in v1.4.0 and reaches device install/launch behind an unverified marker.
 
 | Requirement | Status | Skill |
 |---|---|---|
@@ -23,9 +23,9 @@ Measured against the fifteen requirements in the report's capability map: **elev
 | Unit and UI tests | ✅ | `ios-test-engineer` |
 | Structured test analysis | ✅ | `ios-test-engineer` |
 | Memory graph | ✅ | `ios-memory-debugger` — reference graph, dominator tree, retained size |
-| Build for Simulator | ❌ | — |
-| Build for physical iOS | ❌ | — |
-| Install and launch on device | ❌ | — |
+| Build for Simulator | ✅ | `ios-build-engineer` |
+| Build for physical iOS | ✅ | `ios-build-engineer` — compiles with no credentials |
+| Install and launch on device | ⚠️ | `ios-build-engineer` — implemented, **unverified** without hardware |
 | Screenshot / video, device | ❌ | — |
 
 One result runs the other way. The report concluded that the full render tree "remains Xcode View Debugger territory or requires a project-owned Debug introspection layer." `ios-view-hierarchy-debugger` ships a public-API UIKit capture driven through an LLDB probe, which is more than the research expected to be reachable headlessly.
@@ -34,15 +34,15 @@ One result runs the other way. The report concluded that the full render tree "r
 
 ```
   PRODUCE          DEPLOY           EXERCISE         DIAGNOSE          MEASURE
-  build / sign     Simulator ✅      UI driving ✅     view tree ✅       Instruments ✅
-      ❌           device ❌         tests ✅          LLDB ✅
-                                                     memory ✅
+  build / sign ✅   Simulator ✅      UI driving ✅     view tree ✅       Instruments ✅
+  package ✅        device ⚠️         tests ✅          LLDB ✅
+  run + verify ✅                                     memory ✅
                                                      crash ❌
 ```
 
-The original four skills owned **"why is this wrong"** completely and **"how do I produce and ship this"** not at all. `ios-test-engineer` and `ios-memory-debugger` have since closed the test and memory rows, but the shape of the gap is unchanged: every one of the six still opens by assuming a built, installed application already exists — which held while they were driven by hand against apps already built in Xcode, and stops holding the moment an agent is expected to work end to end.
+The original four skills owned **"why is this wrong"** completely and **"how do I produce and ship this"** not at all. `ios-test-engineer` and `ios-memory-debugger` closed the test and memory rows; `ios-build-engineer` has now closed the produce-and-run gap, so the toolkit no longer opens by assuming a built, installed application already exists.
 
-Closing that is the roadmap.
+What remains is physical hardware: device install and launch are implemented but unverified, device capture is absent, and crash triage still needs its own research pass.
 
 ## Planned skills
 
@@ -62,7 +62,7 @@ The study turned up the finding the skill is built around. Under `-retry-tests-o
 
 Still unverified: physical-device test execution. The study machine had no device attached, so that lane is documented as unverified rather than implied to work.
 
-### 6. `ios-build-engineer` — next
+### 6. `ios-build-engineer` — **shipped in v1.4.0**
 
 **Covers** report §1–2: toolchain pinning and `DEVELOPER_DIR`, scheme and destination discovery, JSON build settings, locating the product without guessing, `archive` and `exportArchive`, signing and provisioning diagnosis.
 
@@ -72,7 +72,13 @@ Still unverified: physical-device test execution. The study machine had no devic
 
 **Authority**: the sharpest of the five. The report flags automatic signing mutation as a risk requiring pre-provisioned, scoped identities and explicit approval, because a careless build invocation can change Developer Portal state. This skill must read signing configuration freely and change it only on request.
 
-Now first in line, and the precondition every other skill quietly assumes. It also unblocks serious matrix support: scheme and destination discovery is build-engineer territory, and `ios-test-engineer` currently carries a minimal version of it in `test_doctor.py`.
+The precondition every other skill quietly assumes, and now shipped.
+
+Built from a live study rather than documentation: a hand-authored `.xcodeproj` and SwiftPM package driven through the whole lifecycle, plus a read of twenty-one open-source build and device tools.
+
+Two findings shaped the skill. **`swift build --triple arm64-apple-ios17.0` exits 0, prints `Build complete!` and emits macOS objects** — SwiftPM cannot cross-compile to iOS, and nothing in the exit status says so, which is why `package_products.py verify-platform` exists. And **both `simctl launch` and `devicectl process launch` exit 0 and print a process id for an app that already crashed**, which is why no run reports success without a `launchctl` liveness probe.
+
+The device lane is implemented and marked unverified: the study machine had no hardware and zero provisioning profiles. Device capture stays with `ios-device-operator`.
 
 ### 7. `ios-device-operator`
 

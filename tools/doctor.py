@@ -59,6 +59,10 @@ SKILL_REQUIREMENTS = {
         ["xcrun", "xcodebuild"],
         "python3 skills/ios-test-engineer/scripts/test_doctor.py --destinations",
     ),
+    "ios-build-engineer": (
+        ["xcrun", "xcodebuild"],
+        "python3 skills/ios-build-engineer/scripts/build_doctor.py",
+    ),
     "ios-memory-debugger": (
         ["leaks", "heap", "vmmap", "malloc_history"],
         "python3 skills/ios-memory-debugger/scripts/test_selftest.py",
